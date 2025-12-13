@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+
+load_dotenv(".env")
+
 from dash import Dash, html
 
 from app.data.main import get_articles, get_price_data
