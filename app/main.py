@@ -9,7 +9,7 @@ from app.data.main import get_articles, get_price_data
 app = Dash(__name__)
 
 app.layout = html.Div([
-    html.H1("Hello World!")
+    html.H1("Hello World!, I like trains")
 ])
 
 if __name__ == '__main__':

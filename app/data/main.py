@@ -77,9 +77,12 @@ def get_price_data(
     close: float
     volume: int
     """
+    print("hello world") 
+
     raise NotImplementedError()
 
 if __name__ == "__main__":
     # Testing code
 
     print(get_articles("AAPL", datetime.fromisoformat("2025-01-01"), datetime.now()))
+    print(get_price_data("AAPL", datetime.fromisoformat("2025-01-01"), datetime.now()))
