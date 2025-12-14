@@ -3,10 +3,9 @@ from datetime import datetime
 
 from supabase import create_client
 import pandas as pd
-
-from app.model.main import get_sentiment
-
 import yfinance as yf
+
+from app.data.pipeline import insert_ticker
 
 if os.getenv("SUPABASE_URL") is None:
     from dotenv import load_dotenv
@@ -43,8 +42,7 @@ def get_articles(
 
     if not ticker_data:
         # Ticker not yet in database, trigger new add and try again
-        # TODO: implement this
-        raise NotImplementedError()
+        ticker_data = insert_ticker(ticker, sb)
 
     keywords = [
         ticker_data[0]["symbol"], ticker_data[0]["region"], ticker_data[0]["sector"], ticker_data[0]["country"]
