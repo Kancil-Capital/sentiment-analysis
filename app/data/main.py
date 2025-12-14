@@ -6,6 +6,8 @@ import pandas as pd
 
 from app.model.main import get_sentiment
 
+import yfinance as yf
+
 if os.getenv("SUPABASE_URL") is None:
     from dotenv import load_dotenv
     load_dotenv(".env")
@@ -77,7 +79,21 @@ def get_price_data(
     close: float
     volume: int
     """
-    print("hello world") 
+    df = yf.download(ticker, start=start_date, end=end_date, progress=False)
+    
+    df.reset_index(inplace=True)
+    
+    #column renaming
+    df.rename(columns={
+        "Date": "timestamp",
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "Volume": "volume"
+    }, inplace=True)
+    
+    return df[["timestamp", "open", "high", "low", "close", "volume"]]
 
     raise NotImplementedError()
 
