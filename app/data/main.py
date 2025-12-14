@@ -79,11 +79,12 @@ def get_price_data(
     close: float
     volume: int
     """
-    df = yf.download(ticker, start=start_date, end=end_date, progress=False)
-    
+    df = yf.download(ticker, start=start_date, end=end_date,
+                     progress=False, auto_adjust=True)
+
     df.reset_index(inplace=True)
-    
-    #column renaming
+ 
+    # column renaming
     df.rename(columns={
         "Date": "timestamp",
         "Open": "open",
@@ -92,10 +93,8 @@ def get_price_data(
         "Close": "close",
         "Volume": "volume"
     }, inplace=True)
-    
+ 
     return df[["timestamp", "open", "high", "low", "close", "volume"]]
-
-    raise NotImplementedError()
 
 if __name__ == "__main__":
     # Testing code
