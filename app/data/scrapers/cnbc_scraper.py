@@ -1,5 +1,4 @@
 import json
-from pprint import pprint
 import requests
 from bs4 import BeautifulSoup
 
@@ -148,21 +147,3 @@ class CNBCScraper(Scraper):
 if __name__ == "__main__":
     scraper = CNBCScraper()
     print(scraper.scrape("Technology", datetime.fromisoformat("2025-12-15")))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
