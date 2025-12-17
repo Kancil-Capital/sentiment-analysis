@@ -56,9 +56,6 @@ def get_articles(
     }).execute().data
 
     df = pd.DataFrame(articles)
-    print("--- DEBUGGING START ---")
-    print("Is the data empty?", df.empty)
-    print("Columns found:", df.columns)
     df = df[["title", "body", "url", "timestamp", "source", "author", "sentiment", "confidence"]]
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
@@ -100,5 +97,5 @@ def get_price_data(
 if __name__ == "__main__":
     # Testing code
 
-    print(get_articles("AAPL", datetime.fromisoformat("2025-01-01"), datetime.now()))
-    print(get_price_data("AAPL", datetime.fromisoformat("2025-01-01"), datetime.now()))
+    print(get_articles("ADSK", datetime.fromisoformat("2025-01-01"), datetime.now()))
+    print(get_price_data("ADSK", datetime.fromisoformat("2025-01-01"), datetime.now()))

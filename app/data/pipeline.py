@@ -11,56 +11,19 @@ from dotenv import load_dotenv
 from app.model.main import get_sentiment
 from app.data.scrapers import CNBCScraper, FinvizScraper, YFinanceScraper
 
-# Adding helper fx: 
-def process_and_save_news(ticker: str, articles: list, sb_client: Client):
+def process_articles(articles: dict[int, dict]) -> tuple[list[int], list[dict]]:
     """
-    Take a list of raw news articles, calculates sentiment, then adds to the database
+    Gets sentiment for articles and prepares them for database insertion
+
+    param
+        articles: {article_id: {title: str, body: str, source: str, author: str}}
+
+    Returns tuple of
+        - list of article IDs that do not have sentiment (to be deleted)
+        - list of sentiment data in form of
+            {article_id: int, affected: str, score: float, confidence: float}
     """
-    # Duplicate URL checking
-    existing_url_responce = sb_client.table("news_articles")\
-        .select()\
-        .eq("ticker",ticker)\
-        .execute()
-
-    # Set of URLS for lookup purposes
-    existing_urls = {row["url"] for row in existing_url_responce}
-    
-    new_rows_to_add = []
-
-    # Loop to skip existing URLs
-    for article in articles:
-        if article.get("url") in existing_urls:
-            continue
-
-    # Fallback: if paywalls etc block web scrapping for some URLs
-    fallback_to_analyse = article.get("body") or article.get("title")
-
-    sentiment_score, confidence = get_sentiment(fallback_to_analyse)
-
-    # Add to database 
-    # Note: if there are column mismatch, revisit this part
-    new_rows_to_add.append({
-            "ticker": ticker,
-            "title": article.get('title'),
-            "body": article.get('body'),
-            "url": article.get('url'),
-            "timestamp": article.get('timestamp'),
-            "source": article.get('source'),
-            "sentiment": sentiment_score,
-            "confidence": confidence
-        })
-    
-    # Bulk add into database
-    if new_rows_to_add:
-        try:
-            sb_client.table("news_articles").insert(new_rows_to_add).execute()
-            print(f"[{ticker}] Success: Saved {len(new_rows_to_add)} new articles.")
-        except Exception as e:
-            print(f"[{ticker}] Database Error: {e}")
-
-
-
-
+    pass
 
 def daily_pipeline():
     """
@@ -85,17 +48,36 @@ def daily_pipeline():
 
     # get keywords to fetch news for
     keywords = set()
+    tickers = []
     for ticker in tickers_data:
-        keywords.add(ticker["symbol"])
+        tickers.append(ticker["symbol"])
         keywords.add(ticker["region"])
         keywords.add(ticker["sector"])
         keywords.add(ticker["country"])
 
-    # TODO: fetch news data from news source
-    # TODO: get sentiments from model
-    # TODO: insert into database
+    # fetch news data from news source
+    from_ = datetime.now() - timedelta(days=2) # last 2 days to be safe
+    cnbc_scraper = CNBCScraper()
+    all_articles = []
 
-    raise NotImplementedError()
+    for kw in keywords:
+        # sector and region news are only available on cnbc
+        all_articles.extend(
+            cnbc_scraper.scrape(kw, from_, is_ticker=False)
+        )
+
+    scrapers = [
+        cnbc_scraper, FinvizScraper(), YFinanceScraper()
+    ]
+
+    # fetch ticker news from all sources
+    for ticker in tickers:
+        for scraper in scrapers:
+            all_articles.extend(
+                scraper.scrape(ticker, from_, is_ticker=True)
+            )
+
+    insert_articles(all_articles, sb)
 
 def insert_ticker(ticker: str, sb_client: Client) -> list[dict]:
     """
@@ -121,7 +103,8 @@ def insert_ticker(ticker: str, sb_client: Client) -> list[dict]:
         "country": ticker_metadata["country"]
     }).execute()
 
-    # fetch news data from 2025
+    # fetch news data from a year ago
+    one_year_ago = datetime.now() - timedelta(days=365)
     keywords = {
         ticker_metadata["region"],
         ticker_metadata["sector"],
@@ -130,31 +113,24 @@ def insert_ticker(ticker: str, sb_client: Client) -> list[dict]:
 
     articles = []
 
+    cnbc_scraper = CNBCScraper()
     for kw in keywords:
         # sector and region news are only available on cnbc
-        scraper = CNBCScraper()
         articles.extend(
-            scraper.scrape(kw, datetime.fromisoformat("2025-01-01"), is_ticker=False)
+            cnbc_scraper.scrape(kw, one_year_ago, is_ticker=False)
         )
 
     # fetch ticker news from all sources
     scrapers = [
-        CNBCScraper(), FinvizScraper(), YFinanceScraper()
+        cnbc_scraper, FinvizScraper(), YFinanceScraper()
     ]
 
     for scraper in scrapers:
         articles.extend(
-            scraper.scrape(ticker, datetime.fromisoformat("2025-01-01"), is_ticker=True)
+            scraper.scrape(ticker, one_year_ago, is_ticker=True)
         )
 
-    # insert into database
-    sb_client.table("articles")\
-        .upsert(
-            [a.to_json() for a in articles], on_conflict="url", ignore_duplicates=True
-        ).execute()
-
-
-    # TODO: get sentiment for each article
+    insert_articles(articles, sb_client)
 
     return [{
         "symbol": ticker,
@@ -162,6 +138,41 @@ def insert_ticker(ticker: str, sb_client: Client) -> list[dict]:
         "sector": ticker_metadata["sector"],
         "country": ticker_metadata["country"]
     }]
+
+def insert_articles(articles: list, sb_client: Client):
+    """
+    Insert articles into database, get sentiments and save them
+    """
+    # insert into database
+    inserted_articles = sb_client.table("articles")\
+        .upsert(
+            [a.to_json() for a in articles], on_conflict="url", ignore_duplicates=True
+        ).execute()
+
+    # get sentiment for each article
+    articles_to_process = {
+        a["id"]: {
+            "title": a["title"],
+            "body": a["body"],
+            "source": a["source"],
+            "author": a.get("author")
+        } for a in inserted_articles.data
+    }
+
+    to_delete, sentiments = process_articles(articles_to_process)
+
+    # delete articles that could not be processed or has no sentiment
+    if to_delete:
+        sb_client.table("articles")\
+            .delete()\
+            .in_("id", to_delete)\
+            .execute()
+
+    # insert sentiments into database
+    if sentiments:
+        sb_client.table("sentiments")\
+            .insert(sentiments)\
+            .execute()
 
 if __name__ == "__main__":
     daily_pipeline()
