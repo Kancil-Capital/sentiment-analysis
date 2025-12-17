@@ -56,6 +56,9 @@ def get_articles(
     }).execute().data
 
     df = pd.DataFrame(articles)
+    print("--- DEBUGGING START ---")
+    print("Is the data empty?", df.empty)
+    print("Columns found:", df.columns)
     df = df[["title", "body", "url", "timestamp", "source", "author", "sentiment", "confidence"]]
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
