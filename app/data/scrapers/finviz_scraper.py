@@ -57,16 +57,13 @@ class FinvizScraper(Scraper):
                 soup = BeautifulSoup(html_body.text, "html.parser")
                 title = soup.find("title").get_text()
 
-                publish_info = soup.find_all("div", {"class": "grow self-center"})
-                body_div = soup.find_all("div", {"class": "text-justify"})
+                publish_info = soup.find("div", {"class": "grow self-center"})
+                body_div = soup.find("div", {"class": "text-justify"})
 
                 # get author and timestamp
-                sections = publish_info[0].get_text().split("\r\n")
-                sections = [s.strip() for s in sections if s.strip()]
-                author, timestamp = sections[1].split("|")
-
-                author = author.strip()
-                timestamp = timestamp.strip()
+                publish_line = publish_info.get_text(separator=" ", strip=True)
+                publish_line = publish_line.removeprefix("By ")
+                author, timestamp = publish_line.split(" | ")
                 timestamp = parser.parse(timestamp)
 
                 if timestamp < from_:
@@ -75,7 +72,7 @@ class FinvizScraper(Scraper):
 
                 # get body
                 self.log(f"{title}: {timestamp.isoformat()}")
-                body = "".join(b.get_text() for b in body_div)
+                body = body_div.get_text(separator=" ", strip=True)
 
                 articles.append(Article(
                     title=title,

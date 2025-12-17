@@ -146,4 +146,4 @@ class CNBCScraper(Scraper):
 
 if __name__ == "__main__":
     scraper = CNBCScraper()
-    print(scraper.scrape("Technology", datetime.fromisoformat("2025-12-15")))
+    print(scraper.scrape("Pharma", datetime.fromisoformat("2025-12-15")))

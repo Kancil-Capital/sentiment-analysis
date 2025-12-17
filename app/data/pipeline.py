@@ -5,7 +5,7 @@ import yfinance as yf
 from dotenv import load_dotenv
 
 from app.model.main import get_sentiment
-from app.data.scrapers import CNBCScraper
+from app.data.scrapers import CNBCScraper, FinvizScraper, YFinanceScraper
 
 def daily_pipeline():
     """
