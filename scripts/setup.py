@@ -73,7 +73,8 @@ def insert_tickers(tickers: list[str], sb_client: Client) -> list[dict]:
                             ignore_duplicates=True
                         ).execute()
                 
-                print(f"✓ Completed keyword: {keyword} ({len(articles)} articles)")
+                with open("setup.log", "a") as f:
+                    f.write(f"✓ Completed keyword: {keyword} ({len(articles)} articles)\n")
                 
             elif task[0] == 'ticker':
                 _, ticker, scraper_class = task
@@ -91,10 +92,12 @@ def insert_tickers(tickers: list[str], sb_client: Client) -> list[dict]:
                             ignore_duplicates=True
                         ).execute()
                 
-                print(f"✓ Completed {ticker} via {scraper_name} ({len(articles)} articles)")
+                with open("setup.log", "a") as f:
+                    f.write(f"✓ Completed {ticker} via {scraper_name} ({len(articles)} articles)\n")
                 
         except Exception as e:
-            print(f"✗ Error processing {task}: {e}")
+            with open("setup.log", "a") as f:
+                f.write(f"Error processing {task}: {e}\n")
     
     # Run with thread pool
     with ThreadPoolExecutor(max_workers=10) as executor:

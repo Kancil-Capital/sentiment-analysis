@@ -1,6 +1,8 @@
 import json
+import time
 import requests
 from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor
 
 from app.data.scrapers.base import Article, Scraper, datetime
 
@@ -25,7 +27,7 @@ class CNBCScraper(Scraper):
         self.params = {
             "queryly_key": "31a35d40a9a64ab3",
             "endindex": 0,
-            "batchsize": 20,
+            "batchsize": 100,
             "timezoneoffset": "0",
             "sort": "date"
         }
@@ -106,10 +108,10 @@ class CNBCScraper(Scraper):
         finished_scraping = False
 
         while not finished_scraping:
-            response = requests.get(graphql_url, params=graphql_params, headers=self.headers)
+            response = requests.get(graphql_url, params=graphql_params, headers=self.headers, timeout=(10, 30))
 
             if not response.ok:
-                self.error(f"Failed fetching: {response.text}")
+                self.error(f"Failed fetching {graphql_url} page {graphql_vars["page"]}: {response.status_code}")
                 break
  
             results = response.json()["data"]["search"]["results"]
@@ -152,10 +154,11 @@ class CNBCScraper(Scraper):
         finished_scraping = False
         while not finished_scraping:
             previous_id_size = len(scraped_ids)
-            response = requests.get(self.url, params=self.params, headers=self.headers)
+            time.sleep(2)
+            response = requests.get(self.url, params=self.params, headers=self.headers, timeout=(10, 30))
 
             if not response.ok:
-                self.error(f"Failed fetching: {response.text}")
+                self.error(f"Failed fetching {self.url} at index {self.params["endindex"]}: {response.status_code}")
                 break
 
             results = response.json()["results"]
@@ -169,7 +172,7 @@ class CNBCScraper(Scraper):
                 scraped_articles.append((
                     res["cn:title"],
                     res["url"],
-                    res.get("author"),
+                    res.get("author", ""),
                     datetime.fromisoformat(res["datePublished"])
                 ))
                 scraped_ids.add(res["_id"])
@@ -184,44 +187,70 @@ class CNBCScraper(Scraper):
 
         return scraped_articles
 
+    def fetch_article_body(self, article_data: tuple) -> Article | None:
+        """Fetch single article body - to be called in parallel"""
+        title, url, author, timestamp = article_data
+
+        try:
+            html_body = requests.get(url, headers=self.headers, timeout=(10, 30))
+
+            if not html_body.ok:
+                self.error(f"Failed to fetch body for {url}: {html_body.status_code}")
+                return None
+
+            body = self.get_body(html_body.text, url, title)
+            if not body:
+                self.error(f"Failed to extract body for {title}")
+                return None
+
+            return Article(
+                title=title,
+                body=body,
+                url=url,
+                author=author,
+                source="CNBC",
+                timestamp=timestamp
+            )
+        except Exception as e:
+            self.error(f"Failed to retrieve body for {url}: {e}")
+            return None
+
     def scrape(self, keyword: str, from_: datetime, **kwargs) -> list[Article]:
         self.log(f"scraping for keyword: {keyword} from: {from_.isoformat()}")
+        self.keyword = keyword
 
         is_ticker = kwargs.get("is_ticker", False)
         scraped_articles = self.get_ticker_articles(keyword, from_) if is_ticker else self.get_keyword_articles(keyword, from_)
 
-        # fetch the bodies for each article
+        # fetch the bodies for each article in parallel
         self.log(f"Found {len(scraped_articles)} articles")
 
-        articles: list[Article] = []
-        for title, url, author, timestamp in scraped_articles:
-            self.log(f"Fetching body for: {title}")
+        # Split into groups
+        groups = [scraped_articles[i:i+50] for i in range(0, len(scraped_articles), 50)]
+        total_groups = len(groups)
 
-            try:
-                html_body = requests.get(url, headers=self.headers)
+        def process_group(group_data):
+            """Sequentially fetch all articles in this group"""
+            group, group_idx = group_data
+            results = []
+            group_size = len(group)
 
-                if not html_body.ok:
-                    self.error(f"Failed to fetch body for {title}: {html_body.text}")
-                    continue
+            for idx, article_data in enumerate(group, 1):
+                self.log(f"Group {group_idx}/{total_groups} - Article {idx}/{group_size}: {article_data[0]}")
+                article = self.fetch_article_body(article_data)
+                if article:
+                    results.append(article)
+            return results
 
-                body = self.get_body(html_body.text, url, title)
-                if not body:
-                    self.error(f"Failed to extract body for {title}")
-                    continue
+        # Process all groups in parallel
+        all_articles = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            group_results = executor.map(process_group, [(g, i+1) for i, g in enumerate(groups)])
 
-                articles.append(Article(
-                    title=title,
-                    body=body,
-                    url=url,
-                    author=author,
-                    source="CNBC",
-                    timestamp=timestamp
-                ))
-            except Exception as e:
-                self.error(f"Failed to retrieve body for {url}: {e}")
+        for results in group_results:
+            all_articles.extend(results)
 
-        return articles
-
+        return all_articles
 
 if __name__ == "__main__":
     scraper = CNBCScraper()

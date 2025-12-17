@@ -51,6 +51,7 @@ class Scraper(ABC):
 
     def __init__(self, name: str):
         self.name = name
+        self.keyword = ""  # Current keyword being scraped
 
     @abstractmethod
     def scrape(self, keyword: str, from_: datetime, **kwargs) -> list[Article]:
@@ -58,10 +59,12 @@ class Scraper(ABC):
         pass
 
     def log(self, log_string: str):
-        logging.info(f"{self.name}: {log_string}")
+        kw_string = " (" + self.keyword + ")" if self.keyword else ""
+        logging.info(f"{self.name}{kw_string}: {log_string}")
 
     def error(self, error_string: str):
-        logging.error(f"{self.name} ERROR: {error_string}")
+        kw_string = " (" + self.keyword + ")" if self.keyword else ""
+        logging.error(f"{self.name}{kw_string} ERROR: {error_string}")
 
     def warn(self, warn_string: str):
-        logging.warning(f"{self.name} WARNING: {warn_string}")
+        logging.warning(f"{self.name} ({self.keyword}) WARNING: {warn_string}")

@@ -24,9 +24,10 @@ class FinvizScraper(Scraper):
 
     def scrape(self, keyword: str, from_: datetime, **kwargs) -> list[Article]:
         self.log(f"scraping for keyword: {keyword} from: {from_.isoformat()}")
+        self.keyword = keyword
 
         # get list of article links
-        response = requests.get(f"https://finviz.com/api/quote-news/{keyword}", headers=self.headers)
+        response = requests.get(f"https://finviz.com/api/quote-news/{keyword}", headers=self.headers, timeout=(10, 30))
         if not response.ok:
             self.error(f"Failed fetching: {response.text}")
             return []
@@ -48,7 +49,7 @@ class FinvizScraper(Scraper):
             url = f"https://finviz.com{link}"
 
             try:
-                html_body = requests.get(url, headers=self.headers)
+                html_body = requests.get(url, headers=self.headers, timeout=(10, 30))
 
                 if not html_body.ok:
                     self.error(f"Failed to fetch body for: {link}")

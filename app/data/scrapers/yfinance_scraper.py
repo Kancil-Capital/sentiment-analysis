@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 import selenium.webdriver as webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from concurrent.futures import ThreadPoolExecutor
 
 from app.data.scrapers.base import Article, Scraper, datetime
 
@@ -16,7 +17,7 @@ class YFinanceScraper(Scraper):
         super().__init__("YFinance_Scraper")
 
         # browser agent headers
-        self.headers = {
+        headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
@@ -25,7 +26,7 @@ class YFinanceScraper(Scraper):
         }
 
         self.session = requests.Session()
-        self.session.headers.update(self.headers)
+        self.session.headers.update(headers)
         self.initialize_cookies()
 
         self.log("initialized")
@@ -54,13 +55,81 @@ class YFinanceScraper(Scraper):
         except Exception as e:
             self.error(f"Failed to initialize cookies: {e}")
 
+    def fetch_article_body(self, url: str, group_info: str = "", article_info: str = "") -> Article | None:
+        """Fetch single article body - to be called in parallel"""
+        try:
+            response = self.session.get(url, timeout=(10, 30))
+
+            if not response.ok:
+                self.error(f"Failed fetching {url}: {response.status_code}")
+                return None
+
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            try:
+                author = soup.find("div", {"class": "byline-attr-author"}).get_text(strip=True)
+            except:
+                author = ""
+
+            timestamp = soup.find("time", {"class": "byline-attr-meta-time"}).get("datetime")
+            timestamp = datetime.fromisoformat(timestamp)
+            title = soup.find("title").get_text()
+
+            self.log(f"Group {group_info} - Article {article_info}: {title}")
+
+            body_div = soup.find("div", {"class": "bodyItems-wrapper"})
+            body = body_div.get_text(separator=" ", strip=True)
+
+            return Article(
+                title=title,
+                body=body,
+                url=url,
+                author=author,
+                source="Yahoo Finance",
+                timestamp=timestamp
+            )
+        except Exception as e:
+            self.error(f"Failed to retrieve body for {url}: {e}")
+            return None
+
+    def fetch_bodies_parallel(self, urls: list[str], batch_size: int = 50) -> list[Article]:
+        """Fetch article bodies in parallel batches"""
+        # Split into groups
+        groups = [urls[i:i+batch_size] for i in range(0, len(urls), batch_size)]
+        total_groups = len(groups)
+
+        def process_group(group_data):
+            """Sequentially fetch all articles in this group"""
+            group, group_idx = group_data
+            results = []
+            group_size = len(group)
+
+            for idx, url in enumerate(group, 1):
+                # self.log(f"Group {group_idx}/{total_groups} - Article {idx}/{group_size}: {url}")
+                article = self.fetch_article_body(url, f"{group_idx}/{total_groups}", f"{idx}/{group_size}")
+                if article:
+                    results.append(article)
+            return results
+
+        # Process all groups in parallel
+        all_articles = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            group_results = executor.map(process_group, [(g, i+1) for i, g in enumerate(groups)])
+
+        for results in group_results:
+            all_articles.extend(results)
+
+        return all_articles
+
     def scrape(self, keyword: str, from_: datetime, **kwargs) -> list[Article]:
         self.log(f"scraping for keyword: {keyword} from: {from_.isoformat()}")
+        self.keyword = keyword
 
         # Initial fetch from html page
-        response = self.session.get(f"https://uk.finance.yahoo.com/quote/{keyword}/news/")
+        url = f"https://uk.finance.yahoo.com/quote/{keyword}/news/"
+        response = self.session.get(url, timeout=(10, 30))
         if not response.ok:
-            self.error(f"Failed fetching: {response.text}")
+            self.error(f"Failed fetching {url}: {response.status_code}")
             return []
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -126,48 +195,19 @@ class YFinanceScraper(Scraper):
             }
 
             self.log("Fetching next page")
-            response = self.session.post(f"https://uk.finance.yahoo.com/xhr/ncp?location=GB&queryRef=newsAll&serviceKey=ncp_fin&listName={keyword}-news&lang=en-GB&region=GB", json=payload)
+            url = f"https://uk.finance.yahoo.com/xhr/ncp?location=GB&queryRef=newsAll&serviceKey=ncp_fin&listName={keyword}-news&lang=en-GB&region=GB"
+            response = self.session.post(url, json=payload, timeout=(10, 30))
 
             if not response.ok:
-                self.error(f"Failed fetching next page: {response.text}")
+                self.error(f"Failed fetching next page {url}: {response.status_code}")
                 break
 
             data = json.loads(response.text)
 
         self.log(f"Found {len(scraped_articles)} articles")
 
-        # get the individual articles
-        articles: list[Article] = []
-        for url in scraped_articles:
-            try:
-                response = self.session.get(url)
-
-                if not response.ok:
-                    self.error(f"Failed fetching: {url}")
-                    continue
-
-                soup = BeautifulSoup(response.text, "html.parser")
-
-                author = soup.find("div", {"class": "byline-attr-author"}).get_text(strip=True)
-                timestamp = soup.find("time", {"class": "byline-attr-meta-time"}).get("datetime")
-                timestamp = datetime.fromisoformat(timestamp)
-                title = soup.find("title").get_text()
-
-                self.log(f"Fetching body for {title}")
-
-                body_div = soup.find("div", {"class": "bodyItems-wrapper"})
-                body = body_div.get_text(separator=" ", strip=True)
-
-                articles.append(Article(
-                    title=title,
-                    body=body,
-                    url=url,
-                    author=author,
-                    source="Yahoo Finance",
-                    timestamp=timestamp
-                ))
-            except Exception as e:
-                self.error(f"Failed to retrieve body for {url}: {e}")
+        # get the individual articles in parallel
+        articles = self.fetch_bodies_parallel(scraped_articles)
 
         return articles
 
