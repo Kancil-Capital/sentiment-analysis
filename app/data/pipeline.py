@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 from datetime import datetime, timedelta
 import pandas as pd
@@ -101,14 +102,14 @@ def insert_ticker(ticker: str, sb_client: Client) -> list[dict]:
     Inserts a new ticker to be tracked
 
     - Get ticker metadata
-    - Fetch news data from 2024
+    - Fetch news data from 2025
     - Get sentiment and insert into database
 
     Returns the row that is inserted into database
     """
     # fetch metadata from yf
     ticker_metadata = yf.Ticker(ticker).info
-    if ticker_metadata.get("displayName") is None:
+    if ticker_metadata == {"trailingPegRatio": None}:
         raise ValueError("Invalid ticker")
 
     # insert metadata into database
@@ -120,8 +121,40 @@ def insert_ticker(ticker: str, sb_client: Client) -> list[dict]:
         "country": ticker_metadata["country"]
     }).execute()
 
-    # TODO: fetch news data from 2024
-    # TODO: get sentiment for news
+    # fetch news data from 2025
+    keywords = {
+        ticker_metadata["region"],
+        ticker_metadata["sector"],
+        ticker_metadata["country"]
+    }
+
+    articles = []
+
+    for kw in keywords:
+        # sector and region news are only available on cnbc
+        scraper = CNBCScraper()
+        articles.extend(
+            scraper.scrape(kw, datetime.fromisoformat("2025-01-01"), is_ticker=False)
+        )
+
+    # fetch ticker news from all sources
+    scrapers = [
+        CNBCScraper(), FinvizScraper(), YFinanceScraper()
+    ]
+
+    for scraper in scrapers:
+        articles.extend(
+            scraper.scrape(ticker, datetime.fromisoformat("2025-01-01"), is_ticker=True)
+        )
+
+    # insert into database
+    sb_client.table("articles")\
+        .upsert(
+            [a.to_json() for a in articles], on_conflict="url", ignore_duplicates=True
+        ).execute()
+
+
+    # TODO: get sentiment for each article
 
     return [{
         "symbol": ticker,

@@ -22,20 +22,20 @@ class FinvizScraper(Scraper):
 
         self.log("initialized")
 
-    def scrape(self, keyword: str, from_: datetime) -> list[Article]:
+    def scrape(self, keyword: str, from_: datetime, **kwargs) -> list[Article]:
         self.log(f"scraping for keyword: {keyword} from: {from_.isoformat()}")
 
         # get list of article links
         response = requests.get(f"https://finviz.com/api/quote-news/{keyword}", headers=self.headers)
         if not response.ok:
-            self.log(f"Failed fetching: {response.text}")
+            self.error(f"Failed fetching: {response.text}")
             return []
 
         soup = BeautifulSoup(json.loads(response.text)["html"], "html.parser")
         anchors = soup.find_all("a")
 
         if not anchors:
-            self.log(f"No news found for {keyword}")
+            self.warn(f"No news found for {keyword}")
             return []
 
         # only get internal news links i.e. starts with /news/
@@ -51,11 +51,12 @@ class FinvizScraper(Scraper):
                 html_body = requests.get(url, headers=self.headers)
 
                 if not html_body.ok:
-                    self.log(f"Failed to fetch body for: {link}")
+                    self.error(f"Failed to fetch body for: {link}")
                     continue
 
                 soup = BeautifulSoup(html_body.text, "html.parser")
                 title = soup.find("title").get_text()
+                self.log(f"Fetching body for {title}")
 
                 publish_info = soup.find("div", {"class": "grow self-center"})
                 body_div = soup.find("div", {"class": "text-justify"})
@@ -84,7 +85,7 @@ class FinvizScraper(Scraper):
                 ))
 
             except Exception as e:
-                self.log(f"Failed to fetch body for {url}: {e}")
+                self.error(f"Failed to retrieve body for {url}: {e}")
                 continue
 
         return articles

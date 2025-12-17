@@ -1,6 +1,16 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(message)s',
+    handlers=[
+        logging.FileHandler('scraper.log'),
+        logging.StreamHandler()  # Also print to console
+    ]
+)
 
 @dataclass
 class Article:
@@ -18,13 +28,23 @@ class Article:
             body: {self.body[:100]}...,
             url: {self.url},
             author: {self.author},
-            souce: {self.source},
+            source: {self.source},
             timestamp: {self.timestamp.isoformat()}
         )
         """
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    def to_json(self) -> dict:
+        return {
+            "title": self.title,
+            "body": self.body,
+            "url": self.url,
+            "author": self.author,
+            "source": self.source,
+            "timestamp": self.timestamp.isoformat()
+        }
 
 class Scraper(ABC):
     """Base class for scraper implementations of various news sources"""
@@ -33,9 +53,15 @@ class Scraper(ABC):
         self.name = name
 
     @abstractmethod
-    def scrape(self, keyword: str, from_: datetime) -> list[Article]:
+    def scrape(self, keyword: str, from_: datetime, **kwargs) -> list[Article]:
         """Scrapes articles for a particular keyword"""
         pass
 
     def log(self, log_string: str):
-        print(f"{self.name}: {log_string}")
+        logging.info(f"{self.name}: {log_string}")
+
+    def error(self, error_string: str):
+        logging.error(f"{self.name} ERROR: {error_string}")
+
+    def warn(self, warn_string: str):
+        logging.warning(f"{self.name} WARNING: {warn_string}")

@@ -52,15 +52,15 @@ class YFinanceScraper(Scraper):
             self.cookies = {c["name"]: c["value"] for c in cookies}
             self.session.cookies.update(self.cookies)
         except Exception as e:
-            self.log(f"Failed to initialize cookies: {e}")
+            self.error(f"Failed to initialize cookies: {e}")
 
-    def scrape(self, keyword: str, from_: datetime) -> list[Article]:
+    def scrape(self, keyword: str, from_: datetime, **kwargs) -> list[Article]:
         self.log(f"scraping for keyword: {keyword} from: {from_.isoformat()}")
 
         # Initial fetch from html page
         response = self.session.get(f"https://uk.finance.yahoo.com/quote/{keyword}/news/")
         if not response.ok:
-            self.log(f"Failed fetching: {response.text}")
+            self.error(f"Failed fetching: {response.text}")
             return []
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -75,7 +75,7 @@ class YFinanceScraper(Scraper):
                 break
 
         if not content:
-            self.log(f"Failed to retrieve content for {keyword}")
+            self.error(f"Failed to retrieve content for {keyword}")
             return []
 
         data = json.loads(json.loads(content)["body"])
@@ -86,6 +86,9 @@ class YFinanceScraper(Scraper):
 
             # sort articles and fetch until from_
             fetched_articles: list = data["data"]["tickerStream"]["stream"]
+            if not fetched_articles:
+                break
+
             fetched_articles = sorted(fetched_articles, key=lambda x: x["content"]["pubDate"], reverse=True)
 
             for article in fetched_articles:
@@ -126,7 +129,7 @@ class YFinanceScraper(Scraper):
             response = self.session.post(f"https://uk.finance.yahoo.com/xhr/ncp?location=GB&queryRef=newsAll&serviceKey=ncp_fin&listName={keyword}-news&lang=en-GB&region=GB", json=payload)
 
             if not response.ok:
-                self.log(f"Failed fetching next page: {response.text}")
+                self.error(f"Failed fetching next page: {response.text}")
                 break
 
             data = json.loads(response.text)
@@ -136,31 +139,35 @@ class YFinanceScraper(Scraper):
         # get the individual articles
         articles: list[Article] = []
         for url in scraped_articles:
-            response = self.session.get(url)
+            try:
+                response = self.session.get(url)
 
-            if not response.ok:
-                self.log(f"Failed fetching: {url}")
-                continue
+                if not response.ok:
+                    self.error(f"Failed fetching: {url}")
+                    continue
 
-            soup = BeautifulSoup(response.text, "html.parser")
+                soup = BeautifulSoup(response.text, "html.parser")
 
-            author = soup.find("div", {"class": "byline-attr-author"}).get_text(strip=True)
-            timestamp = soup.find("time", {"class": "byline-attr-meta-time"}).get("datetime")
-            timestamp = datetime.fromisoformat(timestamp)
-            title = soup.find("title").get_text()
+                author = soup.find("div", {"class": "byline-attr-author"}).get_text(strip=True)
+                timestamp = soup.find("time", {"class": "byline-attr-meta-time"}).get("datetime")
+                timestamp = datetime.fromisoformat(timestamp)
+                title = soup.find("title").get_text()
 
-            body_div = soup.find("div", {"class": "bodyItems-wrapper"})
-            body = body_div.get_text(separator=" ", strip=True)
+                self.log(f"Fetching body for {title}")
 
-            articles.append(Article(
-                title=title,
-                body=body,
-                url=url,
-                author=author,
-                source="Yahoo Finance",
-                timestamp=timestamp
-            ))
+                body_div = soup.find("div", {"class": "bodyItems-wrapper"})
+                body = body_div.get_text(separator=" ", strip=True)
 
+                articles.append(Article(
+                    title=title,
+                    body=body,
+                    url=url,
+                    author=author,
+                    source="Yahoo Finance",
+                    timestamp=timestamp
+                ))
+            except Exception as e:
+                self.error(f"Failed to retrieve body for {url}: {e}")
 
         return articles
 
