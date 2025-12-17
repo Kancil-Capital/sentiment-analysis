@@ -1,11 +1,65 @@
 import os
 
+from datetime import datetime, timedelta
+import pandas as pd
+
 from supabase import create_client, Client
 import yfinance as yf
 from dotenv import load_dotenv
 
 from app.model.main import get_sentiment
 from app.data.scrapers import CNBCScraper, FinvizScraper, YFinanceScraper
+
+# Adding helper fx: 
+def process_and_save_news(ticker: str, articles: list, sb_client: Client):
+    """
+    Take a list of raw news articles, calculates sentiment, then adds to the database
+    """
+    # Duplicate URL checking
+    existing_url_responce = sb_client.table("news_articles")\
+        .select()\
+        .eq("ticker",ticker)\
+        .execute()
+
+    # Set of URLS for lookup purposes
+    existing_urls = {row["url"] for row in existing_url_responce}
+    
+    new_rows_to_add = []
+
+    # Loop to skip existing URLs
+    for article in articles:
+        if article.get("url") in existing_urls:
+            continue
+
+    # Fallback: if paywalls etc block web scrapping for some URLs
+    fallback_to_analyse = article.get("body") or article.get("title")
+
+    sentiment_score, confidence = get_sentiment(fallback_to_analyse)
+
+    # Add to database 
+    # Note: if there are column mismatch, revisit this part
+    new_rows_to_add.append({
+            "ticker": ticker,
+            "title": article.get('title'),
+            "body": article.get('body'),
+            "url": article.get('url'),
+            "timestamp": article.get('timestamp'),
+            "source": article.get('source'),
+            "sentiment": sentiment_score,
+            "confidence": confidence
+        })
+    
+    # Bulk add into database
+    if new_rows_to_add:
+        try:
+            sb_client.table("news_articles").insert(new_rows_to_add).execute()
+            print(f"[{ticker}] Success: Saved {len(new_rows_to_add)} new articles.")
+        except Exception as e:
+            print(f"[{ticker}] Database Error: {e}")
+
+
+
+
 
 def daily_pipeline():
     """
