@@ -30,7 +30,7 @@ def get_spacy_nlp():
             _spacy_nlp = spacy.load(ModelConfig.SPACY_MODEL)
     return _spacy_nlp
 
-def get_ticker_loadup() -> dict:
+def get_ticker_lookup() -> dict:
     """
     Build company name -> ticker lookup
     """
@@ -63,7 +63,7 @@ def get_ticker_loadup() -> dict:
 
     except ImportError:
         pass
-    
+
     manual_mappings = {
         'apple': 'AAPL', 'microsoft': 'MSFT', 'google': 'GOOGL', 'alphabet': 'GOOGL',
         'amazon': 'AMZN', 'meta': 'META', 'facebook': 'META', 'tesla': 'TSLA',
@@ -82,6 +82,50 @@ def get_ticker_loadup() -> dict:
     _ticker_lookup.update(manual_mappings)
     
     return _ticker_lookup
+
+def extract_tickers(text: str) -> list[tuple[str, float]]:
+    """
+    Extract tickers from text using cashtag matching, spaCy NER for organizations, and company name lookup
+    Returns list of (ticker, confidence)
+    """
+    found_tickers = {}
+
+    # Cashtag extraction
+    cashtags = re.findall(r'\$([A-Z]{1,5})', text)
+    for ticker in cashtags:
+        found_tickers[ticker] = max(found_tickers.get(ticker, 0.0), 0.95)
+    
+    # Cashtag matching
+    potential_tickers = re.findall(r'\b([A-Z]{2,5})\b', text)
+    ticker_lookup = get_ticker_lookup()
+    known_tickers = set(ticker_lookup.values())
+
+    for potential in potential_tickers:
+        if potential in known_tickers:
+            in_title = potential in text[:200]  # Check if in first 200 characters
+            score = 0.85 if in_title else 0.65
+            found_tickers[potential] = max(found_tickers.get(potential, 0.0), score)
+
+    # NER extraction using spaCy
+    nlp = get_spacy_nlp()
+    doc = nlp(text)
+    for ent in doc.ents:
+        if ent.label_ == 'ORG':
+            org_name = ent.text.lower()
+            ticker = ticker_lookup.get(org_name)
+
+            if not ticker:
+                for name, tick in ticker_lookup.items():
+                    if name in org_name or org_name in name:
+                        ticker = tick
+                        break
+
+            if ticker:
+                in_title = ent.start_char < 200  # Check if in first 200 characters
+                score = 0.8 if in_title else 0.6
+                found_tickers[ticker] = max(found_tickers.get(ticker, 0.0), score)
+    
+    return [(ticker, score) for ticker, score in found_tickers.items()]
 
 def get_sentiment(
     title: str,
