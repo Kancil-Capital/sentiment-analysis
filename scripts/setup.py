@@ -1,4 +1,6 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
+import threading
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,12 +9,6 @@ from supabase import create_client, Client
 import yfinance as yf
 from datetime import datetime
 from app.data.scrapers import CNBCScraper, FinvizScraper, YFinanceScraper
-
-from concurrent.futures import ThreadPoolExecutor
-import threading
-from datetime import datetime
-import yfinance as yf
-from supabase import Client
 
 def insert_tickers(tickers: list[str], sb_client: Client) -> list[dict]:
     db_lock = threading.Lock()
