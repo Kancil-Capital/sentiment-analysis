@@ -23,7 +23,30 @@ def process_articles(articles: dict[int, dict]) -> tuple[list[int], list[dict]]:
         - list of sentiment data in form of
             {article_id: int, affected: str, score: float, confidence: float}
     """
-    pass
+    to_delete =[]
+    sentiments_list =[]
+
+    for article_id, content in articles.items():
+        text_to_analyze = content.get("body") or content.get("title")
+
+        if not text_to_analyze:
+            to_delete.append()
+            continue
+    try:
+        sentiment_score, confidence = get_sentiment(text_to_analyze)
+
+        # Sentiment Record (Should be ready to insert into database)
+        sentiments_list.append({
+                "article_id": article_id,
+                "affected": content.get("affected", "UNKNOWN"), # e.g., 'AAPL'
+                "score": sentiment_score,
+                "confidence": confidence
+            })
+    except Exception as e:
+        print(f"{article_id}:{e} has an error")
+        to_delete.append(article_id)
+
+    return to_delete, sentiments_list
 
 def daily_pipeline():
     """
