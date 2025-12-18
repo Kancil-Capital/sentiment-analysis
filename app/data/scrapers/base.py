@@ -3,15 +3,6 @@ from dataclasses import dataclass
 from datetime import datetime
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(message)s',
-    handlers=[
-        logging.FileHandler('scraper.log'),
-        logging.StreamHandler()  # Also print to console
-    ]
-)
-
 @dataclass
 class Article:
     title: str

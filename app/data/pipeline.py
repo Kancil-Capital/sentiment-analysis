@@ -1,8 +1,6 @@
 import os
-from datetime import datetime
-
 from datetime import datetime, timedelta
-import pandas as pd
+import logging
 
 from supabase import create_client, Client
 import yfinance as yf
@@ -10,6 +8,16 @@ from dotenv import load_dotenv
 
 from app.model.main import get_sentiment
 from app.data.scrapers import CNBCScraper, FinvizScraper, YFinanceScraper
+
+log_filename = f"logs/{datetime.now().strftime("%Y-%m-%d")}_scraper.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_filename),
+        logging.StreamHandler()  # Also print to console
+    ]
+)
 
 def process_articles(articles: dict[int, dict]) -> tuple[list[int], list[dict]]:
     """
@@ -23,26 +31,29 @@ def process_articles(articles: dict[int, dict]) -> tuple[list[int], list[dict]]:
         - list of sentiment data in form of
             {article_id: int, affected: str, score: float, confidence: float}
     """
-    to_delete =[]
-    sentiments_list =[]
+    logging.info(f"Processing {len(articles)} articles for sentiments")
+    to_delete = []
+    sentiments_list = []
 
-    # Call model 
+    # Call model
     for article_id, content in articles.items():
         results = get_sentiment(
-            title=content.get("title", ""),
-            body=content.get("body", ""),
-            source=content.get("source", ""),
-            author=content.get("author")
+            title=content["title"],
+            body=content["body"],
+            source=content["source"],
+            author=content["author"]
         )
+
+        logging.info(f"Article {article_id}: {len(results)} sentiments")
 
         if not results:
             to_delete.append(article_id)
             continue
-        
+ 
         for affected_party, score, confidence in results:
             sentiments_list.append({
                 "article_id": article_id,
-                "affected": affected_party, 
+                "affected": affected_party,
                 "score": score,
                 "confidence": confidence
             })
@@ -58,6 +69,7 @@ def daily_pipeline():
     - Get sentiment from model
     - Insert into database
     """
+    logging.info(f"Starting pipeline")
     load_dotenv(".env")
 
     sb = create_client(
@@ -84,6 +96,7 @@ def daily_pipeline():
     cnbc_scraper = CNBCScraper()
     all_articles = []
 
+    logging.info(f"Fetching keywords {keywords} from {from_.isoformat()}")
     for kw in keywords:
         # sector and region news are only available on cnbc
         all_articles.extend(
@@ -96,6 +109,7 @@ def daily_pipeline():
 
     # fetch ticker news from all sources
     for ticker in tickers:
+        logging.info(f"Fetching {ticker} from {from_.isoformat()}")
         for scraper in scrapers:
             all_articles.extend(
                 scraper.scrape(ticker, from_, is_ticker=True)
@@ -119,6 +133,7 @@ def insert_ticker(ticker: str, sb_client: Client) -> list[dict]:
         raise ValueError("Invalid ticker")
 
     # insert metadata into database
+    logging.info(f"Inserting new ticker: {ticker}")
     sb_client.table("tickers")\
         .insert({
         "symbol": ticker,
@@ -138,6 +153,7 @@ def insert_ticker(ticker: str, sb_client: Client) -> list[dict]:
     articles = []
 
     cnbc_scraper = CNBCScraper()
+    logging.info(f"Fetching keywords {keywords} from {one_year_ago.isoformat()}")
     for kw in keywords:
         # sector and region news are only available on cnbc
         articles.extend(
@@ -149,6 +165,7 @@ def insert_ticker(ticker: str, sb_client: Client) -> list[dict]:
         cnbc_scraper, FinvizScraper(), YFinanceScraper()
     ]
 
+    logging.info(f"Fetching {ticker} news from {one_year_ago.isoformat()}")
     for scraper in scrapers:
         articles.extend(
             scraper.scrape(ticker, one_year_ago, is_ticker=True)
@@ -168,10 +185,13 @@ def insert_articles(articles: list, sb_client: Client):
     Insert articles into database, get sentiments and save them
     """
     # insert into database
+    logging.info(f"Inserting {len(articles)} articles into database")
     inserted_articles = sb_client.table("articles")\
         .upsert(
             [a.to_json() for a in articles], on_conflict="url", ignore_duplicates=True
         ).execute()
+
+    logging.info(f"Inserted {len(inserted_articles.data)} unique articles")
 
     # get sentiment for each article
     articles_to_process = {
@@ -187,6 +207,7 @@ def insert_articles(articles: list, sb_client: Client):
 
     # delete articles that could not be processed or has no sentiment
     if to_delete:
+        logging.info(f"Deleting {len(to_delete)} articles")
         sb_client.table("articles")\
             .delete()\
             .in_("id", to_delete)\
@@ -194,6 +215,7 @@ def insert_articles(articles: list, sb_client: Client):
 
     # insert sentiments into database
     if sentiments:
+        logging.info(f"Inserting {len(sentiments)} sentiments")
         sb_client.table("sentiments")\
             .insert(sentiments)\
             .execute()
