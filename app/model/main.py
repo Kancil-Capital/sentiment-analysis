@@ -12,7 +12,6 @@ class ModelConfig:
     MAX_SEQUENCE_LENGTH: int =512
     MIN_CONFIDENCE: float =0.3
     SPACY_MODEL: str ="en_core_web_lg" #strong model, can be changed to medium or small for faster performance 
-    CONTEXT_WINDOW: int =150 #number of words around an entity to consider for sentiment analysis
 
 _spacy_nlp = None
 _sentiment_analyzer = None
@@ -27,10 +26,11 @@ def get_spacy_nlp():
         import spacy
         try:
             _spacy_nlp = spacy.load(ModelConfig.SPACY_MODEL)
-        except OSError:
-            import subprocess
-            subprocess.run(["python", "-m", "spacy", "download", ModelConfig.SPACY_MODEL])
-            _spacy_nlp = spacy.load(ModelConfig.SPACY_MODEL)
+        except OSError as e:
+            raise RuntimeError(
+                f"spaCy model '{ModelConfig.SPACY_MODEL}' not installed. "
+                f"Install it via dependencies (pyproject.toml) during build."
+            ) from e
     return _spacy_nlp
 
 def get_ticker_lookup() -> tuple[dict, dict, set]:
