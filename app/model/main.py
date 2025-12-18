@@ -30,6 +30,59 @@ def get_spacy_nlp():
             _spacy_nlp = spacy.load(ModelConfig.SPACY_MODEL)
     return _spacy_nlp
 
+def get_ticker_loadup() -> dict:
+    """
+    Build company name -> ticker lookup
+    """
+    global _ticker_lookup
+    if _ticker_lookup is not None:
+        return _ticker_lookup
+
+    _ticker_lookup_ = {}
+
+    #try pytickersymbols first
+    try:
+        from pytickersymbols import PyTickerSymbols
+        stock_data = PyTickerSymbols()
+        indices = ['S&P 500', 'NASDAQ 100', 'DOW JONES', 'FTSE 100', 'DAX']
+        for index in indices:
+            try:
+                stocks = list(stock_data.get_stocks_by_index(index))
+                for stock in stocks:
+                    name = stock.get('name', '').lower()
+                    symbols = stock.get('symbols', [])
+                    for sym in symbols:
+                        ticker = sym.get('yahoo', sym.get('google',''))
+                        if name and ticker:
+                            _ticker_lookup_[name] = ticker
+                            short_name = name.split()[0] if name else ''
+                            if short_name and len(short_name) > 3:
+                                _ticker_lookup_[short_name] = ticker
+            except Exception: #to be refactored, this some ass code
+                continue
+
+    except ImportError:
+        pass
+    
+    manual_mappings = {
+        'apple': 'AAPL', 'microsoft': 'MSFT', 'google': 'GOOGL', 'alphabet': 'GOOGL',
+        'amazon': 'AMZN', 'meta': 'META', 'facebook': 'META', 'tesla': 'TSLA',
+        'nvidia': 'NVDA', 'netflix': 'NFLX', 'adobe': 'ADBE', 'salesforce': 'CRM',
+        'intel': 'INTC', 'amd': 'AMD', 'qualcomm': 'QCOM', 'cisco': 'CSCO',
+        'oracle': 'ORCL', 'ibm': 'IBM', 'paypal': 'PYPL', 'visa': 'V',
+        'mastercard': 'MA', 'jpmorgan': 'JPM', 'goldman sachs': 'GS',
+        'bank of america': 'BAC', 'wells fargo': 'WFC', 'citigroup': 'C',
+        'walmart': 'WMT', 'target': 'TGT', 'costco': 'COST', 'home depot': 'HD',
+        'coca-cola': 'KO', 'pepsi': 'PEP', 'pepsico': 'PEP', 'nike': 'NKE',
+        'disney': 'DIS', 'boeing': 'BA', 'lockheed martin': 'LMT',
+        'exxon': 'XOM', 'chevron': 'CVX', 'shell': 'SHEL',
+        'pfizer': 'PFE', 'johnson & johnson': 'JNJ', 'moderna': 'MRNA',
+        'uber': 'UBER', 'airbnb': 'ABNB', 'spotify': 'SPOT', 'twitter': 'X',
+    }
+    _ticker_lookup.update(manual_mappings)
+    
+    return _ticker_lookup
+
 def get_sentiment(
     title: str,
     body: str,
