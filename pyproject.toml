@@ -3,11 +3,17 @@ name = "sentiment-analysis"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "dash>=3.3.0",
     "numpy>=2.3.5",
     "pandas>=2.3.3",
     "plotly>=6.5.0",
     "supabase>=2.25.1",
+    "pycountry>=22.3",
+    "pytickersymbols>=1.15",
+    "spacy>=3.7",
+    "transformers>=4.30",
+    "torch>=2.0",
+    "en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl",
 ]

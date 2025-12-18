@@ -17,8 +17,11 @@ class ModelConfig:
 _spacy_nlp = None
 _sentiment_analyzer = None
 _ticker_lookup = None
+_ticker_lookup_lower = None
+_known_tickers_set = None
 
 def get_spacy_nlp():
+    """Load spaCy model once"""
     global _spacy_nlp
     if _spacy_nlp is None:
         import spacy
@@ -26,17 +29,18 @@ def get_spacy_nlp():
             _spacy_nlp = spacy.load(ModelConfig.SPACY_MODEL)
         except OSError:
             import subprocess
-            subprocess.run(["python", "-m", "spacy", "download", ModelConfig.SPACY_MODEL], check=True)
+            subprocess.run(["python", "-m", "spacy", "download", ModelConfig.SPACY_MODEL])
             _spacy_nlp = spacy.load(ModelConfig.SPACY_MODEL)
     return _spacy_nlp
 
-def get_ticker_lookup() -> dict:
+def get_ticker_lookup() -> tuple[dict, dict, set]:
     """
     Build company name -> ticker lookup
     """
-    global _ticker_lookup
+    global _ticker_lookup, _ticker_lookup_lower, _known_tickers_set
+    
     if _ticker_lookup is not None:
-        return _ticker_lookup
+        return _ticker_lookup, _ticker_lookup_lower, _known_tickers_set
 
     _ticker_lookup = {}
 
@@ -44,235 +48,257 @@ def get_ticker_lookup() -> dict:
     try:
         from pytickersymbols import PyTickerSymbols
         stock_data = PyTickerSymbols()
-        indices = ['S&P 500', 'NASDAQ 100', 'DOW JONES', 'FTSE 100', 'DAX']
-        for index in indices:
+        for index in ['S&P 500', 'NASDAQ 100', 'DOW JONES']:  # Reduced for speed
             try:
-                stocks = list(stock_data.get_stocks_by_index(index))
-                for stock in stocks:
+                for stock in stock_data.get_stocks_by_index(index):
                     name = stock.get('name', '').lower()
-                    symbols = stock.get('symbols', [])
-                    for sym in symbols:
-                        ticker = sym.get('yahoo', sym.get('google',''))
+                    for sym in stock.get('symbols', []):
+                        ticker = sym.get('yahoo', sym.get('google', ''))
                         if name and ticker:
                             _ticker_lookup[name] = ticker
-                            short_name = name.split()[0] if name else ''
-                            if short_name and len(short_name) > 3:
-                                _ticker_lookup[short_name] = ticker
-            except Exception: #to be refactored, this some ass code
+                            # Add first word if long enough
+                            first = name.split()[0]
+                            if len(first) > 4:
+                                _ticker_lookup[first] = ticker
+            except Exception:
                 continue
-
     except ImportError:
         pass
 
+    # Manual mappings (guaranteed clean US tickers)
     manual_mappings = {
+        # Tech
         'apple': 'AAPL', 'microsoft': 'MSFT', 'google': 'GOOGL', 'alphabet': 'GOOGL',
         'amazon': 'AMZN', 'meta': 'META', 'facebook': 'META', 'tesla': 'TSLA',
         'nvidia': 'NVDA', 'netflix': 'NFLX', 'adobe': 'ADBE', 'salesforce': 'CRM',
         'intel': 'INTC', 'amd': 'AMD', 'qualcomm': 'QCOM', 'cisco': 'CSCO',
-        'oracle': 'ORCL', 'ibm': 'IBM', 'paypal': 'PYPL', 'visa': 'V',
-        'mastercard': 'MA', 'jpmorgan': 'JPM', 'goldman sachs': 'GS',
+        'oracle': 'ORCL', 'ibm': 'IBM', 'palantir': 'PLTR', 'snowflake': 'SNOW',
+        
+        # Finance
+        'paypal': 'PYPL', 'visa': 'V', 'mastercard': 'MA',
+        'jpmorgan': 'JPM', 'jp morgan': 'JPM',
+        'goldman sachs': 'GS', 'goldman': 'GS',
+        'morgan stanley': 'MS',
         'bank of america': 'BAC', 'wells fargo': 'WFC', 'citigroup': 'C',
+        
+        # Consumer
         'walmart': 'WMT', 'target': 'TGT', 'costco': 'COST', 'home depot': 'HD',
         'coca-cola': 'KO', 'pepsi': 'PEP', 'pepsico': 'PEP', 'nike': 'NKE',
-        'disney': 'DIS', 'boeing': 'BA', 'lockheed martin': 'LMT',
-        'exxon': 'XOM', 'chevron': 'CVX', 'shell': 'SHEL',
+        'disney': 'DIS', 'starbucks': 'SBUX', 'mcdonalds': 'MCD',
+        
+        # Industrial/Energy/Auto
+        'boeing': 'BA', 'lockheed martin': 'LMT', 'caterpillar': 'CAT',
+        'exxon': 'XOM', 'chevron': 'CVX',
+        'ford': 'F', 'gm': 'GM', 'general motors': 'GM',
+        
+        # Healthcare
         'pfizer': 'PFE', 'johnson & johnson': 'JNJ', 'moderna': 'MRNA',
-        'uber': 'UBER', 'airbnb': 'ABNB', 'spotify': 'SPOT', 'twitter': 'X',
+        'unitedhealth': 'UNH', 'eli lilly': 'LLY',
+        
+        # Other
+        'uber': 'UBER', 'airbnb': 'ABNB', 'spotify': 'SPOT',
     }
+
     _ticker_lookup.update(manual_mappings)
-    
-    return _ticker_lookup
-
-def extract_tickers(text: str) -> list[tuple[str, float]]:
-    """
-    Extract tickers from text using cashtag matching, spaCy NER for organizations, and company name lookup
-    Returns list of (ticker, confidence)
-    """
-    found_tickers = {}
-
-    # Cashtag extraction
-    cashtags = re.findall(r'\$([A-Z]{1,5})', text)
-    for ticker in cashtags:
-        found_tickers[ticker] = max(found_tickers.get(ticker, 0.0), 0.95)
-    
-    potential_tickers = re.findall(r'\b([A-Z]{2,5})\b', text)
-    ticker_lookup = get_ticker_lookup()
-    
-    known_tickers = set(ticker_lookup.values())
-
-    lower_text = text.lower()
-    # Fallback: direct company-name match (catches NVIDIA even if spaCy misses it)
-    for name, tick in ticker_lookup.items():
-        if len(name) >= 4 and name in lower_text:
-            in_title = lower_text.find(name) < 200
-            score = 0.75 if in_title else 0.55
-            found_tickers[tick] = max(found_tickers.get(tick, 0.0), score)
- 
-
-    for potential in potential_tickers:
-        if potential in known_tickers:
-            in_title = potential in text[:200]  # Check if in first 200 characters
-            score = 0.85 if in_title else 0.65
-            found_tickers[potential] = max(found_tickers.get(potential, 0.0), score)
-
-    # NER extraction using spaCy
-    nlp = get_spacy_nlp()
-    doc = nlp(text)
-    for ent in doc.ents:
-        if ent.label_ in ('ORG', 'GPE', 'PRODUCT'):
-            org_name = ent.text.lower()
-            ticker = ticker_lookup.get(org_name)
-
-            if not ticker:
-                for name, tick in ticker_lookup.items():
-                    if name in org_name or org_name in name:
-                        ticker = tick
-                        break
-
-            if ticker:
-                in_title = ent.start_char < 200  # Check if in first 200 characters
-                score = 0.8 if in_title else 0.6
-                found_tickers[ticker] = max(found_tickers.get(ticker, 0.0), score)
-    
-    return [(ticker, score) for ticker, score in found_tickers.items()]
+    _ticker_lookup_lower = {k.lower(): v for k, v in _ticker_lookup.items()}
+    _known_tickers_set = set(_ticker_lookup.values())
+    return _ticker_lookup, _ticker_lookup_lower, _known_tickers_set
 
 #sector classifiction
 
-SECTOR_KEYWORDS = { #gpted this, will cross check when have time
-    'Technology': [
-        'software', 'hardware', 'semiconductor', 'chip', 'AI', 'artificial intelligence',
-        'cloud', 'SaaS', 'cybersecurity', 'tech', 'digital', 'computing', 'data center',
-        'machine learning', 'algorithm', 'app', 'platform', 'internet', 'startup'
-    ],
-    'Healthcare': [
-        'pharma', 'pharmaceutical', 'biotech', 'drug', 'FDA', 'clinical trial',
-        'healthcare', 'medical', 'hospital', 'vaccine', 'therapeutic', 'patient',
-        'diagnosis', 'treatment', 'medicine', 'health'
-    ],
-    'Financials': [
-        'bank', 'banking', 'financial', 'investment', 'hedge fund', 'interest rate',
-        'Fed', 'Federal Reserve', 'mortgage', 'loan', 'credit', 'fintech', 'insurance',
-        'asset management', 'wealth', 'trading', 'stock', 'bond'
-    ],
-    'Energy': [
-        'oil', 'gas', 'petroleum', 'crude', 'OPEC', 'renewable', 'solar', 'wind',
-        'energy', 'utility', 'power', 'drilling', 'refinery', 'pipeline', 'fossil fuel'
-    ],
-    'Consumer Discretionary': [
-        'retail', 'e-commerce', 'shopping', 'brand', 'luxury', 'apparel', 'fashion',
-        'restaurant', 'hotel', 'travel', 'leisure', 'entertainment', 'gaming'
-    ],
-    'Consumer Staples': [
-        'food', 'beverage', 'grocery', 'supermarket', 'household', 'tobacco',
-        'personal care', 'consumer goods'
-    ],
-    'Industrials': [
-        'manufacturing', 'industrial', 'factory', 'supply chain', 'logistics',
-        'aerospace', 'defense', 'machinery', 'construction', 'transportation'
-    ],
-    'Real Estate': [
-        'real estate', 'property', 'REIT', 'housing', 'commercial property',
-        'residential', 'rent', 'lease', 'mortgage', 'development'
-    ],
-    'Materials': [
-        'mining', 'metals', 'steel', 'aluminum', 'copper', 'gold', 'silver',
-        'chemical', 'commodity', 'raw material'
-    ],
-    'Utilities': [
-        'electric', 'water', 'gas utility', 'power grid', 'regulated', 'utility'
-    ],
-    'Communication Services': [
-        'telecom', 'media', 'streaming', 'social media', 'advertising',
-        'broadcast', 'cable', 'wireless', '5G'
-    ]
+SECTOR_KEYWORDS = {
+    'Technology': ['software', 'semiconductor', 'chip', 'AI', 'cloud', 'tech', 'SaaS'],
+    'Healthcare': ['pharma', 'biotech', 'drug', 'FDA', 'healthcare', 'medical'],
+    'Financials': ['bank', 'financial', 'investment', 'interest rate', 'Fed', 'mortgage'],
+    'Energy': ['oil', 'gas', 'petroleum', 'OPEC', 'renewable', 'solar', 'energy'],
+    'Consumer': ['retail', 'e-commerce', 'shopping', 'brand', 'consumer'],
 }
 
-def extract_sectors(text: str) -> list[tuple[str, float]]:
-    """
-    Extracts relevant sectors from text/
-    Returns list of (sector, confidence)
-    """
-    text_lower = text.lower()
-    sector_scores = {}
-
-    for sector, keywords in SECTOR_KEYWORDS.items():
-        matches = sum(1 for kw in keywords if kw.lower() in text_lower)
-        if matches > 0: #normalise score based on keyword density
-            score = min(0.9, 0.3 + (matches * 0.12))
-            sector_scores[sector] = score
-    
-    return [(sector, score) for sector, score in sector_scores.items()]
-
-#geographic extraction
 REGION_MAPPINGS = {
-    # Countries to regions
-    'united states': 'US', 'usa': 'US', 'america': 'US',
+    'united states': 'US', 'usa': 'US', 'america': 'US', 'u.s.': 'US',
     'china': 'China', 'chinese': 'China',
     'japan': 'Japan', 'japanese': 'Japan',
-    'united kingdom': 'UK', 'britain': 'UK', 'british': 'UK', 'england': 'UK',
-    'germany': 'EU', 'france': 'EU', 'italy': 'EU', 'spain': 'EU',
-    'european union': 'EU', 'eurozone': 'EU', 'europe': 'EU',
-    'india': 'India',
-    'brazil': 'LATAM', 'mexico': 'LATAM', 'argentina': 'LATAM',
-    'korea': 'APAC', 'south korea': 'APAC', 'singapore': 'APAC',
-    'hong kong': 'APAC', 'taiwan': 'APAC', 'australia': 'APAC',
-    
-    # Financial centers
-    'wall street': 'US', 'nasdaq': 'US', 'nyse': 'US', 'silicon valley': 'US',
-    'city of london': 'UK', 'ftse': 'UK',
-    'shanghai': 'China', 'beijing': 'China', 'shenzhen': 'China',
-    'tokyo': 'Japan', 'nikkei': 'Japan',
-    'frankfurt': 'EU', 'ecb': 'EU',
-    
-    # Central banks (important for financial news)
-    'federal reserve': 'US', 'fed': 'US',
-    'bank of england': 'UK', 'boe': 'UK',
-    'european central bank': 'EU',
-    'pboc': 'China', "people's bank of china": 'China',
-    'bank of japan': 'Japan', 'boj': 'Japan',
+    'united kingdom': 'UK', 'britain': 'UK', 'uk': 'UK',
+    'germany': 'EU', 'france': 'EU', 'europe': 'EU', 'european': 'EU',
+    'federal reserve': 'US', 'fed': 'US', 'wall street': 'US',
+    'ecb': 'EU', 'european central bank': 'EU',
 }
 
-def extract_geographies(text: str) -> list[tuple[str, float]]:
+_sector_patterns = None
+
+def get_sector_patterns():
+    global _sector_patterns
+    if _sector_patterns is None:
+        _sector_patterns = {}
+        for sector, keywords in SECTOR_KEYWORDS.items():
+            pattern = re.compile(r'\b(' + '|'.join(re.escape(kw) for kw in keywords) + r')\b', re.IGNORECASE)
+            _sector_patterns[sector] = pattern
+    return _sector_patterns
+
+@dataclass
+class EntityMention:
+    """An entity mention with position for context extraction"""
+    text: str           # Original text ("Apple", "$TSLA")
+    ticker: str         # Normalized ("AAPL", "TSLA")
+    entity_type: str    # "TICKER", "SECTOR", "REGION"
+    start: int          # Start position in text
+    end: int            # End position
+    relevance: float    # Confidence score
+
+
+
+def extract_entities_with_positions(text: str) -> list[EntityMention]:
     """
-    Extract geographic regions using SpaCy NER and pycountry
-    Returns list of (region, confidence)
+    Extracts relevant sectors and geographies from text.
+    Returns list of EntityMention objects
     """
-    region_scores = {}
+    ticker_lookup, ticker_lookup_lower, known_tickers = get_ticker_lookup()
     text_lower = text.lower()
 
-    #keyword mappings first (catches more specific financial terms)
-    for keyword, region in REGION_MAPPINGS.items():
-        if keyword in text_lower:
-            current_score = region_scores.get(region, 0.0)
-            region_scores[region] = max(current_score, 0.7)
-                                        
-    #spaCy NER
+    entities = []
+    seen_positions = set()
+
+    #Cashtags ($AAPL)
+    for match in re.finditer(r'\$([A-Z]{1,5})\b', text):
+        ticker = match.group(1)
+        if ticker in known_tickers:
+            pos_key = (match.start(), ticker)
+            if pos_key not in seen_positions:
+                seen_positions.add(pos_key)
+                entities.append(EntityMention(
+                    text=match.group(0),
+                    ticker=ticker,
+                    entity_type="TICKER",
+                    start=match.start(),
+                    end=match.end(),
+                    relevance=0.95
+                ))
+    
+    #Direct tickers
+    for match in re.finditer(r'\b([A-Z]{2,5})\b', text):
+        potential = match.group(1)
+        if potential in known_tickers:
+            pos_key = (match.start(), potential)
+            if pos_key not in seen_positions:
+                seen_positions.add(pos_key)
+                in_title = match.start() < 200
+                entities.append(EntityMention(
+                    text=potential,
+                    ticker=potential,
+                    entity_type="TICKER",
+                    start=match.start(),
+                    end=match.end(),
+                    relevance=0.85 if in_title else 0.65
+                ))
+    
+    #Company name matching
+    for name, ticker in ticker_lookup_lower.items():
+        if len(name) >= 4 and ticker in known_tickers:
+            start = 0
+            while True:
+                pos = text_lower.find(name, start)
+                if pos == -1:
+                    break
+                pos_key = (pos, ticker)
+                if pos_key not in seen_positions:
+                    seen_positions.add(pos_key)
+                    in_title = pos < 200
+                    entities.append(EntityMention(
+                        text=text[pos:pos+len(name)],
+                        ticker=ticker,
+                        entity_type="TICKER",
+                        start=pos,
+                        end=pos + len(name),
+                        relevance=0.75 if in_title else 0.55
+                    ))
+                start = pos + 1
+    
+    # 4. spaCy NER
     nlp = get_spacy_nlp()
     doc = nlp(text)
-
+    
     for ent in doc.ents:
-        if ent.label_ in ('GPE', 'LOC'):
-            location = ent.text.lower()
-
-            region = REGION_MAPPINGS.get(location)
-
-            if not region:
-                try:
-                    import pycountry
-                    matches = pycountry.countries.search_fuzzy(ent.text)
-                    if matches:
-                        country_name = matches[0].name.lower()
-                        region = REGION_MAPPINGS.get(country_name, country_name.title())
-                except (ImportError, LookupError):
-                    region = ent.text
-
+        in_title = ent.start_char < 200
+        
+        if ent.label_ == 'ORG':
+            org_lower = ent.text.lower()
+            ticker = ticker_lookup_lower.get(org_lower)
+            
+            if not ticker:
+                first_word = org_lower.split()[0]
+                ticker = ticker_lookup_lower.get(first_word)
+            
+            if ticker and ticker in known_tickers:
+                pos_key = (ent.start_char, ticker)
+                if pos_key not in seen_positions:
+                    seen_positions.add(pos_key)
+                    entities.append(EntityMention(
+                        text=ent.text,
+                        ticker=ticker,
+                        entity_type="TICKER",
+                        start=ent.start_char,
+                        end=ent.end_char,
+                        relevance=0.8 if in_title else 0.6
+                    ))
+        
+        elif ent.label_ in ('GPE', 'LOC'):
+            loc_lower = ent.text.lower()
+            region = REGION_MAPPINGS.get(loc_lower)
             if region:
-                in_title = ent.start_char < 200
-                score = 0.8 if in_title else 0.6
-                region_scores[region] = max(region_scores.get(region, 0.0), score)
+                entities.append(EntityMention(
+                    text=ent.text,
+                    ticker=region,
+                    entity_type="REGION",
+                    start=ent.start_char,
+                    end=ent.end_char,
+                    relevance=0.7 if in_title else 0.5
+                ))
+    
+    # 5. Sector keywords
+    for sector, pattern in get_sector_patterns().items():
+        for match in pattern.finditer(text):
+            entities.append(EntityMention(
+                text=match.group(0),
+                ticker=sector,
+                entity_type="SECTOR",
+                start=match.start(),
+                end=match.end(),
+                relevance=0.6
+            ))
+    
+    # 6. Region keywords
+    for keyword, region in REGION_MAPPINGS.items():
+        pos = text_lower.find(keyword)
+        if pos != -1:
+            entities.append(EntityMention(
+                text=keyword,
+                ticker=region,
+                entity_type="REGION",
+                start=pos,
+                end=pos + len(keyword),
+                relevance=0.6
+            ))
+    
+    return entities
 
-    return [(region, score) for region, score in region_scores.items()]
+def get_entity_context(text:str, entity: EntityMention, window: int = 200) -> str:
+    """
+    Extract context window around entity mention
+    """
+    start = max(0, entity.start - window)
+    end = min(len(text), entity.end + window)
+    
+    sentence_start = text.rfind('.', start, entity.start)
+    if sentence_start != -1 and sentence_start > start:
+        start = sentence_start + 1
+    
+    sentence_end = text.find('.', entity.end, end)
+    if sentence_end != -1:
+        end = sentence_end + 1
+    
+    return text[start:end].strip()
 
+    
 # SENTIMENT ANALYSIS
 class SentimentAnalyzer:
     def __init__(self, model_name: str = ModelConfig.SENTIMENT_MODEL):
@@ -313,34 +339,63 @@ class SentimentAnalyzer:
         p_pos = probs[self.label_map['positive']].item()
         p_neg = probs[self.label_map['negative']].item()
         p_neutral = probs[self.label_map['neutral']].item()
-        sentiment_score = p_pos - p_neg
+        sentiment = p_pos - p_neg
         confidence = max(p_pos, p_neg) * (1 - p_neutral * 0.5)
 
-        return sentiment_score, confidence
+        return sentiment, confidence
     
+    def analyze_batch(self, texts: list[str]) -> list[tuple[float, float]]:
+        """
+        Analyze a batch of texts at once
+        """
+        if not texts:
+            return []
+        
+        inputs = self.tokenizer(
+            texts,
+            return_tensors='pt',
+            truncation=True,
+            max_length=ModelConfig.MAX_SEQUENCE_LENGTH,
+            padding=True
+        )
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+        with self.torch.no_grad():
+            outputs = self.model(**inputs)
+            probs = self.torch.nn.functional.softmax(outputs.logits, dim=-1)
+        
+        results = []
+        for i in range(len(texts)):
+            p_pos = probs[i][self.label_map['positive']].item()
+            p_neg = probs[i][self.label_map['negative']].item()
+            p_neutral = probs[i][self.label_map['neutral']].item()
+            sentiment = p_pos - p_neg
+            confidence = max(p_pos, p_neg) * (1 - p_neutral * 0.5)
+            results.append((sentiment, confidence))
+        
+        return results
+    
+_sentiment_analyzer = None
+
 def get_sentiment_analyzer() -> SentimentAnalyzer:
     global _sentiment_analyzer
     if _sentiment_analyzer is None:
         _sentiment_analyzer = SentimentAnalyzer()
     return _sentiment_analyzer
 
-SOURCE_TIERS = {
-    1.0: ['reuters', 'bloomberg', 'wsj', 'wall street journal', 'financial times', 'ft', 'sec.gov'],
-    0.95: ['cnbc', 'barrons', 'economist', 'marketwatch'],
-    0.9: ['cnn', 'bbc', 'nytimes', 'new york times', 'associated press', 'ap news'],
-    0.85: ['yahoo finance', 'google finance', 'investing.com'],
-    0.8: ['techcrunch', 'seeking alpha', 'motley fool', 'benzinga'],
-    0.7: ['reddit', 'twitter', 'stocktwits'],  # Social media - lower weight
+SOURCE_WEIGHTS = {
+    'reuters': 1.0, 'bloomberg': 1.0, 'wsj': 1.0, 'financial times': 1.0,
+    'cnbc': 0.95, 'barrons': 0.95, 'marketwatch': 0.9,
+    'yahoo finance': 0.85, 'seeking alpha': 0.8, 'motley fool': 0.8,
 }
 
-
 def get_source_weight(source: str) -> float:
-    """Get credibility weight for a news source"""
     source_lower = source.lower()
-    for weight, sources in SOURCE_TIERS.items():
-        if any(s in source_lower for s in sources):
+    for name, weight in SOURCE_WEIGHTS.items():
+        if name in source_lower:
             return weight
-    return 0.75  # Default for unknown sources
+    return 0.75
+
 
 def get_sentiment(
     title: str,
@@ -349,114 +404,351 @@ def get_sentiment(
     author: str | None
 ) -> list[tuple[str, float, float]]:
     """
-    Gets sentiment for an article
-
-    Args:
-        title: Article title
-        body: Article body
-        source: News source
-        author: Article author (optional)
-
-    Returns list of (affected_party, sentiment_score, confidence)
+    Gets sentiment for an article.
+    
+    OPTIMIZED VERSION:
+    - Single spaCy pass
+    - Single sentiment analysis (not duplicate)
+    - Pre-computed lookups
     """
     full_text = f"{title}\n\n{body}"
     
-    #Extract all affected parties (tickers)
-    tickers = extract_tickers(full_text)
-    sectors = extract_sectors(full_text)
-    geographies = extract_geographies(full_text)
-
-    #get sentiment
-    analyzer = get_sentiment_analyzer()
-    title_sentiment, title_conf = analyzer.analyze(title)
-    full_sentiment, full_conf = analyzer.analyze(full_text[:2000]) #limit to first 2000 chars for performance
-
-    #weighted combination (title higher weightage)
-    base_sentiment = 0.4 * title_sentiment + 0.6 * full_sentiment
-    base_confidence = 0.4 * title_conf + 0.6 * full_conf
-
-    #source weight
-    source_weight = get_source_weight(source)
-
-    #build results
-    results: list[tuple[str, float, float]] = []
-
-    #tickers (highest weightage)
-    for ticker, relevance in tickers:
-        conf = base_confidence * source_weight * relevance
-        if conf >= ModelConfig.MIN_CONFIDENCE:
-            results.append((ticker, round(base_sentiment, 4), round(conf, 4)))
+    # Extract entities with positions
+    entities = extract_entities_with_positions(full_text)
     
-    #sectors
-    for sector, relevance in sectors:
-        conf = base_confidence * source_weight * relevance * 0.85
-        if conf >= ModelConfig.MIN_CONFIDENCE:
-            results.append((sector, round(base_sentiment, 4), round(conf, 4)))
+    if not entities:
+        return []
+    
+    # Group entities by (type, ticker)
+    entity_groups: dict[str, list[EntityMention]] = {}
+    for ent in entities:
+        if ent.entity_type == "TICKER":
+            key = ent.ticker
+        else:
+            key = f"{ent.entity_type}:{ent.ticker}"
+        
+        if key not in entity_groups:
+            entity_groups[key] = []
+        entity_groups[key].append(ent)
+    
+    # Get analyzer and source weight
+    analyzer = get_sentiment_analyzer()
+    source_weight = get_source_weight(source)
+    
+    # Calculate sentiment for EACH entity based on ITS context
+    results: list[tuple[str, float, float]] = []
+    
+    for key, mentions in entity_groups.items():
+        # Collect unique contexts for this entity
+        contexts = []
+        relevances = []
+        seen_contexts = set()
+        
+        for mention in mentions:
+            context = get_entity_context(full_text, mention)
+            # Avoid duplicate contexts
+            context_key = context[:100]  # Use first 100 chars as key
+            if context_key not in seen_contexts:
+                seen_contexts.add(context_key)
+                contexts.append(context)
+                relevances.append(mention.relevance)
+        
+        if not contexts:
+            continue
+        
+        # Batch analyze all contexts for this entity
+        sentiment_results = analyzer.analyze_batch(contexts)
+        
+        # Weighted average by relevance
+        total_weight = sum(relevances)
+        weighted_sentiment = sum(s * r for (s, _), r in zip(sentiment_results, relevances))
+        weighted_confidence = sum(c * r for (_, c), r in zip(sentiment_results, relevances))
+        
+        avg_sentiment = weighted_sentiment / total_weight
+        avg_confidence = weighted_confidence / total_weight
+        
+        # Apply source weight and max relevance
+        max_relevance = max(relevances)
+        final_confidence = avg_confidence * source_weight * max_relevance
+        
+        # Type-specific multiplier
+        if mentions[0].entity_type == "SECTOR":
+            final_confidence *= 0.85
+        elif mentions[0].entity_type == "REGION":
+            final_confidence *= 0.75
+        
+        if final_confidence >= ModelConfig.MIN_CONFIDENCE:
+            results.append((
+                key,
+                round(avg_sentiment, 4),
+                round(final_confidence, 4)
+            ))
+    
+    # Sort by confidence and remove duplicates
+    results.sort(key=lambda x: x[2], reverse=True)
+    
+    seen = set()
+    unique_results = []
+    for r in results:
+        if r[0] not in seen:
+            seen.add(r[0])
+            unique_results.append(r)
+    
+    return unique_results
 
-    #geographies
-    for region, relevance in geographies:
-        conf = base_confidence * source_weight * relevance * 0.75
-        if conf >= ModelConfig.MIN_CONFIDENCE:
-            results.append((region, round(base_sentiment, 4), round(conf, 4)))
+def get_sentiment_batch(
+    articles: list[dict]
+) -> list[list[tuple[str, float, float]]]:
+    """
+    Process multiple articles efficiently.
+    
+    Args:
+        articles: List of {"title": str, "body": str, "source": str}
+    
+    Returns:
+        List of results for each article
+    """
+    if not articles:
+        return []
+    
+    _ = get_spacy_nlp()
+    analyzer = get_sentiment_analyzer()
 
-    results.sort(key=lambda x: x[2], reverse=True)  # Sort by confidence descending
-    return results
+    all_results = []
 
+    for article in articles:
+        results = get_sentiment(
+            article['title'],
+            article['body'],
+            article['source'],
+            None
+        )
+        all_results.append(results)
+
+    return all_results
+
+#TEST!!
 
 if __name__ == "__main__":
+    import time
+    
     print("=" * 70)
-    print("SENTIMENT ANALYSIS TEST")
+    print("SENTIMENT ANALYSIS")
     print("=" * 70)
     
     test_cases = [
+        # 1) Winner vs loser (same sector, opposite outcome)
         {
-            "title": "Apple Reports Record Q4 Earnings, Beats Wall Street Expectations",
-            "body": """Apple Inc. announced record-breaking fourth quarter results today, 
-            with revenue exceeding analyst expectations by 5%. The tech giant reported 
-            strong iPhone sales across all regions, particularly in China and Europe.
-            CEO Tim Cook expressed optimism about AI initiatives. Goldman Sachs upgraded 
-            the stock to "Buy".""",
+            "title": "NVIDIA Surges on Blowout Earnings as Intel Warns of Weak Demand",
+            "body": """
+            NVIDIA reported blockbuster quarterly earnings, beating expectations on revenue and guidance.
+            Management said demand for AI chips and data center products remains exceptionally strong.
+            Shares jumped after the results.
+
+            In contrast, Intel issued a profit warning, citing weak PC demand and margin pressure.
+            The company guided revenue lower and said it expects profitability to deteriorate.
+            Analysts downgraded Intel after the announcement.
+            """,
             "source": "Reuters",
         },
+
+        # 2) Two companies: one upgraded, one under investigation
         {
-            "title": "Federal Reserve Signals Potential Rate Cuts Amid Slowing Inflation",
-            "body": """The Federal Reserve indicated it may begin cutting interest rates
-            in the coming months as inflation shows signs of cooling. This news boosted
-            bank stocks and the broader financial sector. European markets also rallied
-            on expectations of similar moves from the ECB.""",
+            "title": "Apple Upgraded on Services Strength While Meta Faces EU Privacy Probe",
+            "body": """
+            Apple was upgraded by analysts who cited accelerating services growth and resilient demand.
+            The firm raised its price target and said margins could expand.
+
+            Meanwhile, Meta Platforms came under scrutiny after EU regulators opened a privacy investigation.
+            Officials said potential violations could lead to significant penalties, pressuring the stock.
+            """,
             "source": "Bloomberg",
         },
+
+        # 3) Acquisition: acquirer mixed/negative, target positive
         {
-            "title": "Tesla Shares Plunge After Missing Delivery Targets",
-            "body": """Tesla stock fell sharply after the company reported Q3 deliveries
-            below analyst expectations. The electric vehicle maker blamed supply chain
-            issues and increased competition in China. Analysts at Morgan Stanley 
-            downgraded their price target.""",
+            "title": "Microsoft to Acquire Cybersecurity Firm in Deal Viewed as Expensive",
+            "body": """
+            Microsoft agreed to acquire a cybersecurity company for a large premium.
+            Shares of the target surged as investors welcomed the buyout price.
+
+            Some analysts said the valuation looks expensive and could dilute Microsoft’s near-term earnings,
+            even as the deal expands Microsoft’s security offerings over the long term.
+            """,
+            "source": "WSJ",
+        },
+
+        # 4) Product recall: strong negative for one, neutral/positive for competitor
+        {
+            "title": "Tesla Recalls Vehicles Over Safety Issue as Ford Sees Strong Demand",
+            "body": """
+            Tesla announced a recall due to a safety issue and said it would address the problem via updates.
+            The news raised concerns about quality and potential regulatory scrutiny.
+
+            Separately, Ford reported strong demand for its latest models and said orders remain healthy,
+            supporting a more optimistic outlook for the quarter.
+            """,
             "source": "CNBC",
-        }
+        },
+
+        # 5) Bank stress: bank negative, “Fed”/macro mixed, sector negative
+        {
+            "title": "Bank of America Shares Slide After Margin Warning; Fed Comments Add Uncertainty",
+            "body": """
+            Bank of America warned that net interest margins may decline due to deposit competition.
+            Shares fell as investors worried about profitability.
+
+            Federal Reserve officials said the path of rates will depend on data, adding uncertainty for banks.
+            The broader financial sector weakened on the comments.
+            """,
+            "source": "MarketWatch",
+        },
+
+        # 6) Energy: oil surge positive for Exxon/Chevron, negative for airlines/consumer
+        {
+            "title": "Oil Prices Jump on Supply Shock; Exxon Gains While Airlines Warn of Higher Costs",
+            "body": """
+            Oil prices jumped after a supply disruption, boosting energy producers.
+            Exxon and Chevron shares rose as traders priced in stronger cash flows.
+
+            Airlines warned that higher fuel costs could pressure earnings and force ticket price increases.
+            Consumer spending could also slow if energy prices remain elevated.
+            """,
+            "source": "Financial Times",
+        },
+
+        # 7) Litigation: big negative for one company, neutral for sector
+        {
+            "title": "Johnson & Johnson Hit With Lawsuit Ruling; Analysts Cut Estimates",
+            "body": """
+            Johnson & Johnson faced a major adverse court ruling in ongoing litigation.
+            Analysts said the decision increases financial risk and could lead to higher settlement costs.
+
+            Healthcare peers were largely unchanged as investors focused on company-specific exposure.
+            """,
+            "source": "Reuters",
+        },
+
+        # 8) Neutral/uncertain guidance: should trend closer to neutral
+        {
+            "title": "Amazon Signals Cautious Outlook; Results In Line With Expectations",
+            "body": """
+            Amazon reported results largely in line with expectations and reiterated cautious guidance.
+            Management said demand is steady but visibility remains limited due to macro uncertainty.
+
+            Analysts described the update as balanced, with neither a clear upside surprise nor a major miss.
+            """,
+            "source": "Bloomberg",
+        },
+
+        # 9) China exposure: Apple negative, US region mixed, China region negative
+        {
+            "title": "China Tightens Tech Rules; Apple Suppliers Face Disruption Risk",
+            "body": """
+            China announced tighter rules affecting technology supply chains, raising disruption risk.
+            Analysts warned Apple suppliers could see delays and higher compliance costs.
+
+            Markets reacted cautiously, with investors watching for potential spillover into US tech earnings.
+            """,
+            "source": "Reuters",
+        },
+
+        # 10) Strong positive for consumer brand, negative for competitor
+        {
+            "title": "Nike Beats Expectations With Strong Demand as Adidas Struggles With Inventory",
+            "body": """
+            Nike reported better-than-expected sales and said demand remained strong across key regions.
+            The company raised its outlook and highlighted improving profitability.
+
+            Adidas warned that elevated inventory levels are forcing discounts, pressuring margins.
+            Analysts said near-term results could remain challenged.
+            """,
+            "source": "FT",
+        },
+
+        # 11) Multiple entities in one paragraph (tests context window separation)
+        {
+            "title": "Alphabet Announces Major AI Expansion; Microsoft Faces Cloud Outage Backlash",
+            "body": """
+            Alphabet announced a major AI expansion and said new products could boost revenue growth.
+            Investors welcomed the strategy and analysts called the plan a catalyst.
+
+            In separate news, Microsoft faced backlash after a cloud outage disrupted customers.
+            Some clients reported operational losses and questioned reliability guarantees.
+            """,
+            "source": "Reuters",
+        },
+
+        # 12) Very negative scandal for one, positive recovery for another
+        {
+            "title": "Wells Fargo Fined Again for Compliance Failures as JPMorgan Sees Record Trading",
+            "body": """
+            Wells Fargo was fined again after regulators cited repeated compliance failures.
+            The penalty raised concerns about governance and ongoing oversight.
+
+            JPMorgan, meanwhile, reported record trading revenue and said market conditions were favorable.
+            Analysts praised execution and reaffirmed bullish views on the stock.
+            """,
+            "source": "Bloomberg",
+        },
     ]
+
     
+    # Call models
+    _ = get_sentiment(test_cases[0]['title'], test_cases[0]['body'], test_cases[0]['source'], None)
+    
+    # Test individually
+    print("\n" + "=" * 70)
+    print("INDIVIDUAL PROCESSING")
+    print("=" * 70)
+    
+    start = time.time()
     for i, test in enumerate(test_cases, 1):
-        print(f"\n{'='*70}")
-        print(f"TEST CASE {i}: {test['title'][:50]}...")
-        print(f"Source: {test['source']}")
-        print("-" * 70)
+        t0 = time.time()
+        results = get_sentiment(test['title'], test['body'], test['source'], None)
+        elapsed = time.time() - t0
         
-        results = get_sentiment(
-            title=test['title'],
-            body=test['body'],
-            source=test['source'],
-            author=None
-        )
+        print(f"\nTest {i}: {test['title'][:45]}...")
+        print(f"Time: {elapsed:.3f}s")
+        print(f"{'Entity':<25} {'Sentiment':>10} {'Confidence':>10} {'Label':<8}")
+        print("-" * 60)
         
-        if results:
-            print(f"{'Affected Party':<30} {'Sentiment':>12} {'Confidence':>12}")
-            print("-" * 70)
-            for party, sentiment, confidence in results:
-                label = " Positive" if sentiment > 0.1 else "Negative" if sentiment < -0.1 else "Neutral"
-                print(f"{party:<30} {sentiment:>+12.4f} {confidence:>12.4f}  {label}")
-        else:
-            print("No entities extracted with sufficient confidence.")
+        for entity, sentiment, confidence in results[:6]:
+            if sentiment > 0.15:
+                label = "POS"
+            elif sentiment < -0.15:
+                label = "NEG"
+            else:
+                label = "NEU"
+            print(f"{entity:<25} {sentiment:>+10.4f} {confidence:>10.4f} {label}")
+    
+    print(f"\nTotal individual time: {time.time() - start:.2f}s")
+    
+    # Batch processing
+    print("\n" + "=" * 70)
+    print("BATCH PROCESSING")
+    print("=" * 70)
+    
+    start = time.time()
+    batch_results = get_sentiment_batch(test_cases)
+    batch_time = time.time() - start
+    
+    print(f"\nBatch time for {len(test_cases)} articles: {batch_time:.2f}s")
+    print(f"Average per article: {batch_time/len(test_cases):.3f}s")
+    
+    for i, (test, results) in enumerate(zip(test_cases, batch_results), 1):
+        print(f"\nArticle {i}: {test['title'][:45]}...")
+        print(f"{'Entity':<25} {'Sentiment':>10} {'Confidence':>10} {'Label':<8}")
+        print("-" * 60)
+        
+        for entity, sentiment, confidence in results[:5]:
+            if sentiment > 0.15:
+                label = "POS"
+            elif sentiment < -0.15:
+                label = "NEG"
+            else:
+                label = "NEU"
+            print(f"{entity:<25} {sentiment:>+10.4f} {confidence:>10.4f} {label}")
     
     print("\n" + "=" * 70)
     print("DONE")
