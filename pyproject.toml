@@ -13,6 +13,12 @@ dependencies = [
     "selenium>=4.39.0",
     "supabase>=2.25.1",
     "yfinance>=0.2.66",
+    "pycountry>=22.3",
+    "pytickersymbols>=1.15",
+    "spacy>=3.7",
+    "transformers>=4.30",
+    "torch>=2.0",
+    "en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl",
 ]
 
 [build-system]
