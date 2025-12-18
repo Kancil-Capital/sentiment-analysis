@@ -11,12 +11,12 @@ class ModelConfig:
     SENTIMENT_MODEL: str ="ProsusAI/finbert"
     MAX_SEQUENCE_LENGTH: int =512
     MIN_CONFIDENCE: float =0.3
-    SPACY_MODEL: str ="en_core_web_sm" #smaller model for faster performance for now, can upgrade to md or lg later
+    SPACY_MODEL: str ="en_core_web_lg" #strong model, can be changed to medium or small for faster performance 
     CONTEXT_WINDOW: int =150 #number of words around an entity to consider for sentiment analysis
 
 _spacy_nlp = None
 _sentiment_analyzer = None
-_ticker_lookup_ = None
+_ticker_lookup = None
 
 def get_spacy_nlp():
     global _spacy_nlp
@@ -38,7 +38,7 @@ def get_ticker_lookup() -> dict:
     if _ticker_lookup is not None:
         return _ticker_lookup
 
-    _ticker_lookup_ = {}
+    _ticker_lookup = {}
 
     #try pytickersymbols first
     try:
@@ -54,10 +54,10 @@ def get_ticker_lookup() -> dict:
                     for sym in symbols:
                         ticker = sym.get('yahoo', sym.get('google',''))
                         if name and ticker:
-                            _ticker_lookup_[name] = ticker
+                            _ticker_lookup[name] = ticker
                             short_name = name.split()[0] if name else ''
                             if short_name and len(short_name) > 3:
-                                _ticker_lookup_[short_name] = ticker
+                                _ticker_lookup[short_name] = ticker
             except Exception: #to be refactored, this some ass code
                 continue
 
@@ -95,10 +95,19 @@ def extract_tickers(text: str) -> list[tuple[str, float]]:
     for ticker in cashtags:
         found_tickers[ticker] = max(found_tickers.get(ticker, 0.0), 0.95)
     
-    # Cashtag matching
     potential_tickers = re.findall(r'\b([A-Z]{2,5})\b', text)
     ticker_lookup = get_ticker_lookup()
+    
     known_tickers = set(ticker_lookup.values())
+
+    lower_text = text.lower()
+    # Fallback: direct company-name match (catches NVIDIA even if spaCy misses it)
+    for name, tick in ticker_lookup.items():
+        if len(name) >= 4 and name in lower_text:
+            in_title = lower_text.find(name) < 200
+            score = 0.75 if in_title else 0.55
+            found_tickers[tick] = max(found_tickers.get(tick, 0.0), score)
+ 
 
     for potential in potential_tickers:
         if potential in known_tickers:
@@ -110,7 +119,7 @@ def extract_tickers(text: str) -> list[tuple[str, float]]:
     nlp = get_spacy_nlp()
     doc = nlp(text)
     for ent in doc.ents:
-        if ent.label_ == 'ORG':
+        if ent.label_ in ('ORG', 'GPE', 'PRODUCT'):
             org_name = ent.text.lower()
             ticker = ticker_lookup.get(org_name)
 
@@ -138,4 +147,3 @@ def get_sentiment(
     Returns list of (affected_party, sentiment_score, confidence)
     """
     raise NotImplementedError()
-
