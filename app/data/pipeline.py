@@ -35,7 +35,7 @@ def process_articles(articles: dict[int, dict]) -> tuple[list[int], list[dict]]:
     try:
         sentiment_score, confidence = get_sentiment(text_to_analyze)
 
-        # Sentiment Record (Should be ready to insert into database)
+        # Return tuple (Should be ready to insert into database)
         sentiments_list.append({
                 "article_id": article_id,
                 "affected": content.get("affected", "UNKNOWN"), # e.g., 'AAPL'
