@@ -12,6 +12,13 @@ beautifulsoup4==4.14.3
     # via yfinance
 blinker==1.9.0
     # via flask
+blis==1.3.3
+    # via thinc
+catalogue==2.0.10
+    # via
+    #   spacy
+    #   srsly
+    #   thinc
 certifi==2025.11.12
     # via
     #   curl-cffi
@@ -26,29 +33,61 @@ cffi==2.0.0
 charset-normalizer==3.4.4
     # via requests
 click==8.3.1
-    # via flask
+    # via
+    #   flask
+    #   typer-slim
+cloudpathlib==0.23.0
+    # via weasel
+confection==0.1.5
+    # via
+    #   thinc
+    #   weasel
 cryptography==46.0.3
     # via pyjwt
+<<<<<<< HEAD
 curl-cffi==0.13.0
     # via yfinance
+=======
+cymem==2.0.13
+    # via
+    #   preshed
+    #   spacy
+    #   thinc
+>>>>>>> c59c10a (edited dependency files)
 dash==3.3.0
     # via sentiment-analysis (pyproject.toml)
 deprecation==2.1.0
     # via
     #   postgrest
     #   storage3
+<<<<<<< HEAD
 dotenv==0.9.9
     # via sentiment-analysis (pyproject.toml)
 flask==3.1.2
     # via dash
 frozendict==2.4.7
     # via yfinance
+=======
+filelock==3.20.1
+    # via
+    #   huggingface-hub
+    #   torch
+    #   transformers
+flask==3.1.2
+    # via dash
+fsspec==2025.12.0
+    # via
+    #   huggingface-hub
+    #   torch
+>>>>>>> c59c10a (edited dependency files)
 h11==0.16.0
     # via
     #   httpcore
     #   wsproto
 h2==4.3.0
     # via httpx
+hf-xet==1.2.0
+    # via huggingface-hub
 hpack==4.1.0
     # via h2
 httpcore==1.0.9
@@ -60,6 +99,10 @@ httpx==0.28.1
     #   supabase
     #   supabase-auth
     #   supabase-functions
+huggingface-hub==0.36.0
+    # via
+    #   tokenizers
+    #   transformers
 hyperframe==6.1.0
     # via h2
 idna==3.11
@@ -74,33 +117,60 @@ importlib-metadata==8.7.0
 itsdangerous==2.2.0
     # via flask
 jinja2==3.1.6
-    # via flask
+    # via
+    #   flask
+    #   spacy
+    #   torch
 markupsafe==3.0.3
     # via
     #   flask
     #   jinja2
     #   werkzeug
+mpmath==1.3.0
+    # via sympy
 multidict==6.7.0
     # via yarl
+<<<<<<< HEAD
 multitasking==0.0.12
     # via yfinance
+=======
+murmurhash==1.0.15
+    # via
+    #   preshed
+    #   spacy
+    #   thinc
+>>>>>>> c59c10a (edited dependency files)
 narwhals==2.13.0
     # via plotly
 nest-asyncio==1.6.0
     # via dash
+networkx==3.6.1
+    # via torch
 numpy==2.3.5
     # via
     #   sentiment-analysis (pyproject.toml)
+    #   blis
     #   pandas
+<<<<<<< HEAD
     #   yfinance
 outcome==1.3.0.post0
     # via
     #   trio
     #   trio-websocket
+=======
+    #   spacy
+    #   thinc
+    #   transformers
+>>>>>>> c59c10a (edited dependency files)
 packaging==25.0
     # via
     #   deprecation
+    #   huggingface-hub
     #   plotly
+    #   spacy
+    #   thinc
+    #   transformers
+    #   weasel
 pandas==2.3.3
     # via
     #   sentiment-analysis (pyproject.toml)
@@ -115,18 +185,31 @@ plotly==6.5.0
     #   dash
 postgrest==2.25.1
     # via supabase
+preshed==3.0.12
+    # via
+    #   spacy
+    #   thinc
 propcache==0.4.1
     # via yarl
+<<<<<<< HEAD
 protobuf==6.33.2
     # via yfinance
+=======
+pycountry==24.6.1
+    # via sentiment-analysis (pyproject.toml)
+>>>>>>> c59c10a (edited dependency files)
 pycparser==2.23
     # via cffi
 pydantic==2.12.5
     # via
+    #   confection
     #   postgrest
     #   realtime
+    #   spacy
     #   storage3
     #   supabase-auth
+    #   thinc
+    #   weasel
 pydantic-core==2.41.5
     # via pydantic
 pyjwt==2.10.1
@@ -135,32 +218,77 @@ pysocks==1.7.1
     # via urllib3
 python-dateutil==2.9.0.post0
     # via pandas
+<<<<<<< HEAD
 python-dotenv==1.2.1
     # via dotenv
 pytz==2025.2
     # via
     #   pandas
     #   yfinance
+=======
+pytickersymbols==1.15.0
+    # via sentiment-analysis (pyproject.toml)
+pytz==2025.2
+    # via pandas
+pyyaml==6.0.3
+    # via
+    #   huggingface-hub
+    #   transformers
+>>>>>>> c59c10a (edited dependency files)
 realtime==2.25.1
     # via supabase
+regex==2025.11.3
+    # via transformers
 requests==2.32.5
     # via
     #   dash
+<<<<<<< HEAD
     #   yfinance
 retrying==1.4.2
     # via dash
 selenium==4.39.0
     # via sentiment-analysis (pyproject.toml)
-setuptools==80.9.0
+=======
+    #   huggingface-hub
+    #   spacy
+    #   transformers
+    #   weasel
+retrying==1.4.2
     # via dash
+safetensors==0.7.0
+    # via transformers
+>>>>>>> c59c10a (edited dependency files)
+setuptools==80.9.0
+    # via
+    #   dash
+    #   spacy
+    #   thinc
+    #   torch
 six==1.17.0
     # via python-dateutil
+<<<<<<< HEAD
 sniffio==1.3.1
     # via trio
 sortedcontainers==2.4.0
     # via trio
 soupsieve==2.8
     # via beautifulsoup4
+=======
+smart-open==7.5.0
+    # via weasel
+spacy==3.8.11
+    # via sentiment-analysis (pyproject.toml)
+spacy-legacy==3.0.12
+    # via spacy
+spacy-loggers==1.0.5
+    # via spacy
+srsly==2.5.2
+    # via
+    #   confection
+    #   spacy
+    #   thinc
+    #   weasel
+>>>>>>> c59c10a (edited dependency files)
 storage3==2.25.1
     # via supabase
 strenum==0.4.15
@@ -171,6 +299,7 @@ supabase-auth==2.25.1
     # via supabase
 supabase-functions==2.25.1
     # via supabase
+<<<<<<< HEAD
 trio==0.32.0
     # via
     #   selenium
@@ -181,22 +310,63 @@ typing-extensions==4.15.0
     # via
     #   anyio
     #   beautifulsoup4
+=======
+sympy==1.14.0
+    # via torch
+thinc==8.3.10
+    # via spacy
+tokenizers==0.22.1
+    # via transformers
+torch==2.9.1
+    # via sentiment-analysis (pyproject.toml)
+tqdm==4.67.1
+    # via
+    #   huggingface-hub
+    #   spacy
+    #   transformers
+transformers==4.57.3
+    # via sentiment-analysis (pyproject.toml)
+typer-slim==0.20.0
+    # via
+    #   spacy
+    #   weasel
+typing-extensions==4.15.0
+    # via
+    #   anyio
+>>>>>>> c59c10a (edited dependency files)
     #   dash
+    #   huggingface-hub
     #   pydantic
     #   pydantic-core
     #   realtime
+<<<<<<< HEAD
     #   selenium
+=======
+    #   torch
+    #   typer-slim
+>>>>>>> c59c10a (edited dependency files)
     #   typing-inspection
 typing-inspection==0.4.2
     # via pydantic
 tzdata==2025.2
     # via pandas
 urllib3==2.6.2
+<<<<<<< HEAD
     # via
     #   requests
     #   selenium
 websocket-client==1.9.0
     # via selenium
+=======
+    # via requests
+wasabi==1.1.3
+    # via
+    #   spacy
+    #   thinc
+    #   weasel
+weasel==0.4.3
+    # via spacy
+>>>>>>> c59c10a (edited dependency files)
 websockets==15.0.1
     # via
     #   realtime
@@ -205,8 +375,13 @@ werkzeug==3.1.4
     # via
     #   dash
     #   flask
+<<<<<<< HEAD
 wsproto==1.3.2
     # via trio-websocket
+=======
+wrapt==2.0.1
+    # via smart-open
+>>>>>>> c59c10a (edited dependency files)
 yarl==1.22.0
     # via
     #   postgrest
