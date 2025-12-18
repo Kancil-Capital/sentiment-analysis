@@ -26,25 +26,26 @@ def process_articles(articles: dict[int, dict]) -> tuple[list[int], list[dict]]:
     to_delete =[]
     sentiments_list =[]
 
+    # Call model 
     for article_id, content in articles.items():
-        text_to_analyze = content.get("body") or content.get("title")
+        results = get_sentiment(
+            title=content.get("title", ""),
+            body=content.get("body", ""),
+            source=content.get("source", ""),
+            author=content.get("author")
+        )
 
-        if not text_to_analyze:
-            to_delete.append()
+        if not results:
+            to_delete.append(article_id)
             continue
-    try:
-        sentiment_score, confidence = get_sentiment(text_to_analyze)
-
-        # Return tuple (Should be ready to insert into database)
-        sentiments_list.append({
+        
+        for affected_party, score, confidence in results:
+            sentiments_list.append({
                 "article_id": article_id,
-                "affected": content.get("affected", "UNKNOWN"), # e.g., 'AAPL'
-                "score": sentiment_score,
+                "affected": affected_party, 
+                "score": score,
                 "confidence": confidence
             })
-    except Exception as e:
-        print(f"{article_id}:{e} has an error")
-        to_delete.append(article_id)
 
     return to_delete, sentiments_list
 
