@@ -1,7 +1,21 @@
+import os
 from datetime import datetime
-import pandas as pd
 
-from app.model.main import get_sentiment
+from supabase import create_client
+import pandas as pd
+import yfinance as yf
+
+from app.data.pipeline import insert_ticker
+
+if os.getenv("SUPABASE_URL") is None:
+    from dotenv import load_dotenv
+    load_dotenv(".env")
+
+
+sb = create_client(
+    supabase_url=os.environ["SUPABASE_URL"],
+    supabase_key=os.environ["SUPABASE_SECRET_KEY"]
+)
 
 def get_articles(
     ticker: str,
@@ -21,7 +35,31 @@ def get_articles(
     sentiment: float
     confidence: float
     """
-    raise NotImplementedError()
+    ticker_data = sb.table("tickers")\
+        .select("*")\
+        .eq("symbol", ticker)\
+        .execute().data
+
+    if not ticker_data:
+        # Ticker not yet in database, trigger new add and try again
+        ticker_data = insert_ticker(ticker, sb)
+
+    keywords = [
+        ticker_data[0]["symbol"], ticker_data[0]["region"], ticker_data[0]["sector"], ticker_data[0]["country"]
+    ]
+
+    # get all articles with these keywords in the affected column
+    articles = sb.rpc("get_sentiments", {
+        "keywords": keywords,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat()
+    }).execute().data
+
+    df = pd.DataFrame(articles)
+    df = df[["title", "body", "url", "timestamp", "source", "author", "sentiment", "confidence"]]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    return df
 
 def get_price_data(
     ticker: str,
@@ -39,4 +77,25 @@ def get_price_data(
     close: float
     volume: int
     """
-    raise NotImplementedError()
+    df = yf.download(ticker, start=start_date, end=end_date,
+                     progress=False, auto_adjust=True)
+
+    df.reset_index(inplace=True)
+ 
+    # column renaming
+    df.rename(columns={
+        "Date": "timestamp",
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "Volume": "volume"
+    }, inplace=True)
+ 
+    return df[["timestamp", "open", "high", "low", "close", "volume"]]
+
+if __name__ == "__main__":
+    # Testing code
+
+    print(get_articles("ADSK", datetime.fromisoformat("2025-01-01"), datetime.now()))
+    print(get_price_data("ADSK", datetime.fromisoformat("2025-01-01"), datetime.now()))
