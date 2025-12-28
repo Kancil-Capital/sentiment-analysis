@@ -10,7 +10,7 @@ warnings.filterwarnings("ignore")
 class ModelConfig:
     SENTIMENT_MODEL: str ="ProsusAI/finbert"
     MAX_SEQUENCE_LENGTH: int =512
-    MIN_CONFIDENCE: float =0.3
+    MIN_CONFIDENCE: float = 0.25
     SPACY_MODEL: str ="en_core_web_lg" #strong model, can be changed to medium or small for faster performance 
 
 _spacy_nlp = None
@@ -34,9 +34,6 @@ def get_spacy_nlp():
     return _spacy_nlp
 
 def get_ticker_lookup() -> tuple[dict, dict, set]:
-    """
-    Build company name -> ticker lookup
-    """
     global _ticker_lookup, _ticker_lookup_lower, _known_tickers_set
     
     if _ticker_lookup is not None:
@@ -44,22 +41,19 @@ def get_ticker_lookup() -> tuple[dict, dict, set]:
 
     _ticker_lookup = {}
 
-    #try pytickersymbols first
+    # 1. Load from pytickersymbols FIRST (lower priority)
     try:
         from pytickersymbols import PyTickerSymbols
         stock_data = PyTickerSymbols()
-        for index in ['S&P 500', 'NASDAQ 100', 'DOW JONES']:  # Reduced for speed
+        for index in ['S&P 500', 'NASDAQ 100', 'DOW JONES']:
             try:
                 for stock in stock_data.get_stocks_by_index(index):
                     name = stock.get('name', '').lower()
                     for sym in stock.get('symbols', []):
                         ticker = sym.get('yahoo', sym.get('google', ''))
-                        if name and ticker:
+                        # FILTER: Only US tickers (no dots)
+                        if name and ticker and '.' not in ticker:
                             _ticker_lookup[name] = ticker
-                            # Add first word if long enough
-                            first = name.split()[0]
-                            if len(first) > 4:
-                                _ticker_lookup[first] = ticker
             except Exception:
                 continue
     except ImportError:
@@ -73,6 +67,8 @@ def get_ticker_lookup() -> tuple[dict, dict, set]:
         'nvidia': 'NVDA', 'netflix': 'NFLX', 'adobe': 'ADBE', 'salesforce': 'CRM',
         'intel': 'INTC', 'amd': 'AMD', 'qualcomm': 'QCOM', 'cisco': 'CSCO',
         'oracle': 'ORCL', 'ibm': 'IBM', 'palantir': 'PLTR', 'snowflake': 'SNOW',
+        'autodesk': 'ADSK', 'adsk': 'ADSK',
+        'grab': 'GRAB', 'grab holdings': 'GRAB',
         
         # Finance
         'paypal': 'PYPL', 'visa': 'V', 'mastercard': 'MA',
@@ -85,11 +81,13 @@ def get_ticker_lookup() -> tuple[dict, dict, set]:
         'walmart': 'WMT', 'target': 'TGT', 'costco': 'COST', 'home depot': 'HD',
         'coca-cola': 'KO', 'pepsi': 'PEP', 'pepsico': 'PEP', 'nike': 'NKE',
         'disney': 'DIS', 'starbucks': 'SBUX', 'mcdonalds': 'MCD',
+        'alibaba': 'BABA', 'baba': 'BABA',
         
         # Industrial/Energy/Auto
         'boeing': 'BA', 'lockheed martin': 'LMT', 'caterpillar': 'CAT',
         'exxon': 'XOM', 'chevron': 'CVX',
         'ford': 'F', 'gm': 'GM', 'general motors': 'GM',
+        'general electric': 'GE', 'ge': 'GE',
         
         # Healthcare
         'pfizer': 'PFE', 'johnson & johnson': 'JNJ', 'moderna': 'MRNA',
@@ -97,11 +95,17 @@ def get_ticker_lookup() -> tuple[dict, dict, set]:
         
         # Other
         'uber': 'UBER', 'airbnb': 'ABNB', 'spotify': 'SPOT',
+        'cbre': 'CBRE', 'cbre group': 'CBRE',
     }
 
-    _ticker_lookup.update(manual_mappings)
+    _ticker_lookup.update(manual_mappings)  # This overwrites any conflicts
+    
+    # 3. Build lowercase lookup and known set
     _ticker_lookup_lower = {k.lower(): v for k, v in _ticker_lookup.items()}
-    _known_tickers_set = set(_ticker_lookup.values())
+    
+    # 4. FILTER: Only keep US tickers in known set
+    _known_tickers_set = {v for v in _ticker_lookup.values() if '.' not in v}
+    
     return _ticker_lookup, _ticker_lookup_lower, _known_tickers_set
 
 #sector classifiction
@@ -112,6 +116,9 @@ SECTOR_KEYWORDS = {
     'Financials': ['bank', 'financial', 'investment', 'interest rate', 'Fed', 'mortgage'],
     'Energy': ['oil', 'gas', 'petroleum', 'OPEC', 'renewable', 'solar', 'energy'],
     'Consumer': ['retail', 'e-commerce', 'shopping', 'brand', 'consumer'],
+    'Real Estate': ['real estate', 'property', 'REIT', 'commercial real estate', 'housing', 'mortgage'],
+    'Industrials': ['industrial', 'manufacturing', 'aerospace', 'defense', 'machinery', 'construction'],
+    'Communication Services': ['social media', 'advertising', 'streaming', 'media', 'telecom', 'communication'],
 }
 
 REGION_MAPPINGS = {
@@ -122,6 +129,9 @@ REGION_MAPPINGS = {
     'germany': 'EU', 'france': 'EU', 'europe': 'EU', 'european': 'EU',
     'federal reserve': 'US', 'fed': 'US', 'wall street': 'US',
     'ecb': 'EU', 'european central bank': 'EU',
+    'hong kong': 'Hong Kong', 'hk': 'Hong Kong',
+    'singapore': 'Singapore', 'singaporean': 'Singapore',
+    'southeast asia': 'SEA', 'asean': 'SEA',
 }
 
 _sector_patterns = None
@@ -281,13 +291,16 @@ def extract_entities_with_positions(text: str) -> list[EntityMention]:
     
     return entities
 
-def get_entity_context(text:str, entity: EntityMention, window: int = 200) -> str:
+def get_entity_context(text: str, entity: EntityMention, all_entities: list[EntityMention] = None, window: int = 200, mask_token: str = "[COMPANY]"
+) -> str:
     """
     Extract context window around entity mention
     """
+    # Get initial window
     start = max(0, entity.start - window)
     end = min(len(text), entity.end + window)
     
+    # Expand to sentence boundaries
     sentence_start = text.rfind('.', start, entity.start)
     if sentence_start != -1 and sentence_start > start:
         start = sentence_start + 1
@@ -296,7 +309,31 @@ def get_entity_context(text:str, entity: EntityMention, window: int = 200) -> st
     if sentence_end != -1:
         end = sentence_end + 1
     
-    return text[start:end].strip()
+    context = text[start:end].strip()
+    
+    if all_entities:
+        # Sort other entities by position (descending) to replace from end first
+        # This prevents position shifts from affecting earlier replacements
+        other_entities = [
+            e for e in all_entities 
+            if e.start != entity.start and e.ticker != entity.ticker
+        ]
+        other_entities.sort(key=lambda e: e.start, reverse=True)
+        
+        for other in other_entities:
+            # Calculate position relative to our context window
+            rel_start = other.start - start
+            rel_end = other.end - start
+            
+            # Only mask if this entity falls within our context
+            if 0 <= rel_start < len(context) and rel_end > 0:
+                rel_start = max(0, rel_start)
+                rel_end = min(len(context), rel_end)
+                
+                # Replace other entity with mask token
+                context = context[:rel_start] + mask_token + context[rel_end:]
+    
+    return context
 
     
 # SENTIMENT ANALYSIS
@@ -406,10 +443,7 @@ def get_sentiment(
     """
     Gets sentiment for an article.
     
-    OPTIMIZED VERSION:
-    - Single spaCy pass
-    - Single sentiment analysis (not duplicate)
-    - Pre-computed lookups
+    UPDATED: Now passes all entities to context extraction for masking.
     """
     full_text = f"{title}\n\n{body}"
     
@@ -445,9 +479,16 @@ def get_sentiment(
         seen_contexts = set()
         
         for mention in mentions:
-            context = get_entity_context(full_text, mention)
+            # === KEY CHANGE: Pass all entities for masking ===
+            context = get_entity_context(
+                full_text, 
+                mention, 
+                all_entities=entities,  # NEW: pass all entities
+                window=75               # NEW: reduced window
+            )
+            
             # Avoid duplicate contexts
-            context_key = context[:100]  # Use first 100 chars as key
+            context_key = context[:100]
             if context_key not in seen_contexts:
                 seen_contexts.add(context_key)
                 contexts.append(context)
@@ -537,162 +578,273 @@ if __name__ == "__main__":
     print("=" * 70)
     
     test_cases = [
-        # 1) Winner vs loser (same sector, opposite outcome)
-        {
-            "title": "NVIDIA Surges on Blowout Earnings as Intel Warns of Weak Demand",
-            "body": """
-            NVIDIA reported blockbuster quarterly earnings, beating expectations on revenue and guidance.
-            Management said demand for AI chips and data center products remains exceptionally strong.
-            Shares jumped after the results.
+    # ===========================================
+    # TEST 1: NVDA - Positive but with caveats
+    # Expected: NVDA slightly positive (~0.2 to 0.4)
+    # ===========================================
+    {
+        "title": "NVIDIA Reports Solid Quarter Though Supply Constraints Persist",
+        "body": """
+        NVIDIA posted quarterly results that met expectations, with data center revenue 
+        showing continued strength. However, management noted that supply chain constraints 
+        continue to limit shipments.
+        
+        The company maintained its guidance rather than raising it, citing uncertainty 
+        around customer inventory levels. Gross margins were stable but did not expand 
+        as some analysts had hoped.
+        
+        Shares were little changed in after-hours trading as investors weighed the 
+        solid execution against the cautious tone on near-term visibility.
+        """,
+        "source": "Reuters",
+        "expected_range": (0.1, 0.4)
+    },
 
-            In contrast, Intel issued a profit warning, citing weak PC demand and margin pressure.
-            The company guided revenue lower and said it expects profitability to deteriorate.
-            Analysts downgraded Intel after the announcement.
-            """,
-            "source": "Reuters",
-        },
+    # ===========================================
+    # TEST 2: BABA - Mixed China news
+    # Expected: BABA slightly negative (~-0.3 to -0.1)
+    # ===========================================
+    {
+        "title": "Alibaba Sees Stabilizing Trends in China Despite Cautious Consumer",
+        "body": """
+        Alibaba reported that e-commerce trends in China have stabilized after a 
+        difficult period. Revenue came in roughly in line with expectations.
+        
+        Management said consumer spending remains cautious but has stopped deteriorating.
+        The company is focused on cost discipline while investing selectively in 
+        growth areas. Margins improved slightly due to efficiency measures.
+        
+        Hong Kong shares edged lower as investors await clearer signs of recovery 
+        in the Chinese consumer market.
+        """,
+        "source": "Bloomberg",
+        "expected_range": (-0.3, 0.1)
+    },
 
-        # 2) Two companies: one upgraded, one under investigation
-        {
-            "title": "Apple Upgraded on Services Strength While Meta Faces EU Privacy Probe",
-            "body": """
-            Apple was upgraded by analysts who cited accelerating services growth and resilient demand.
-            The firm raised its price target and said margins could expand.
+    # ===========================================
+    # TEST 3: GE - Steady industrial performance
+    # Expected: GE neutral to slightly positive (~0.0 to 0.3)
+    # ===========================================
+    {
+        "title": "GE Aerospace Delivers Steady Results Amid Supply Chain Work",
+        "body": """
+        General Electric's aerospace unit reported results in line with forecasts.
+        Engine deliveries increased modestly while service revenue remained stable.
+        
+        The company said it continues to work through supply chain challenges that 
+        have affected the broader manufacturing sector. Management reiterated full-year 
+        guidance without changes.
+        
+        Industrial stocks were mixed on the day as investors assessed the pace of 
+        recovery in aerospace and defense spending.
+        """,
+        "source": "WSJ",
+        "expected_range": (-0.1, 0.3)
+    },
 
-            Meanwhile, Meta Platforms came under scrutiny after EU regulators opened a privacy investigation.
-            Officials said potential violations could lead to significant penalties, pressuring the stock.
-            """,
-            "source": "Bloomberg",
-        },
+    # ===========================================
+    # TEST 4: C (Citigroup) - Rate uncertainty
+    # Expected: C neutral (~-0.2 to 0.2)
+    # ===========================================
+    {
+        "title": "Citigroup Navigates Uncertain Rate Environment With Mixed Results",
+        "body": """
+        Citigroup reported quarterly earnings that included both bright spots and 
+        areas of concern. Trading revenue was better than feared, while net interest 
+        income faced pressure from deposit competition.
+        
+        The bank said credit quality remains sound overall, though it increased 
+        reserves modestly for potential commercial real estate stress. Expenses 
+        were in line with targets.
+        
+        Financial sector analysts described the quarter as uneventful, with the 
+        stock likely to trade sideways until there's more clarity on interest rates.
+        """,
+        "source": "Financial Times",
+        "expected_range": (-0.2, 0.2)
+    },
 
-        # 3) Acquisition: acquirer mixed/negative, target positive
-        {
-            "title": "Microsoft to Acquire Cybersecurity Firm in Deal Viewed as Expensive",
-            "body": """
-            Microsoft agreed to acquire a cybersecurity company for a large premium.
-            Shares of the target surged as investors welcomed the buyout price.
+    # ===========================================
+    # TEST 5: CBRE - Real estate stabilizing
+    # Expected: CBRE slightly negative (~-0.3 to 0.0)
+    # ===========================================
+    {
+        "title": "CBRE Notes Early Signs of Stabilization in Commercial Property Market",
+        "body": """
+        CBRE Group said commercial real estate transaction activity may be finding 
+        a floor after a prolonged downturn. The company reported results roughly 
+        in line with lowered expectations.
+        
+        Office vacancy rates remain elevated but the pace of increase has slowed.
+        Management said some property segments like industrial and data centers 
+        continue to show resilience.
+        
+        The real estate services firm maintained a cautious outlook while noting 
+        that buyer and seller expectations are gradually converging.
+        """,
+        "source": "Reuters",
+        "expected_range": (-0.3, 0.1)
+    },
 
-            Some analysts said the valuation looks expensive and could dilute Microsoft’s near-term earnings,
-            even as the deal expands Microsoft’s security offerings over the long term.
-            """,
-            "source": "WSJ",
-        },
+    # ===========================================
+    # TEST 6: GRAB - Growth vs profitability tradeoff
+    # Expected: GRAB neutral to slight positive (~-0.1 to 0.25)
+    # ===========================================
+    {
+        "title": "Grab Balances Growth Investments With Path to Profitability",
+        "body": """
+        Grab Holdings reported that revenue growth continued in Singapore and 
+        Southeast Asia, though at a slower pace than previous quarters. The company 
+        showed progress on reducing losses.
+        
+        Management said it remains focused on balancing market share investments 
+        with improving unit economics. Competition in food delivery remains intense 
+        across ASEAN markets.
+        
+        Shares were relatively flat as investors acknowledged progress while 
+        waiting for clearer evidence of sustainable profitability.
+        """,
+        "source": "Bloomberg",
+        "expected_range": (-0.1, 0.3)
+    },
 
-        # 4) Product recall: strong negative for one, neutral/positive for competitor
-        {
-            "title": "Tesla Recalls Vehicles Over Safety Issue as Ford Sees Strong Demand",
-            "body": """
-            Tesla announced a recall due to a safety issue and said it would address the problem via updates.
-            The news raised concerns about quality and potential regulatory scrutiny.
+    # ===========================================
+    # TEST 7: META - Ad market normalization
+    # Expected: META neutral (~-0.15 to 0.15)
+    # ===========================================
+    {
+        "title": "Meta Reports Normalizing Ad Trends After Period of Volatility",
+        "body": """
+        Meta Platforms said digital advertising demand has stabilized after a 
+        volatile period. Revenue met expectations while engagement metrics across 
+        social media platforms remained steady.
+        
+        The company continues to invest heavily in AI and metaverse initiatives, 
+        which pressures near-term margins. Management said these investments are 
+        necessary for long-term positioning.
+        
+        Communication services stocks were mixed as the sector digests a return 
+        to more normal advertising spending patterns.
+        """,
+        "source": "CNBC",
+        "expected_range": (-0.2, 0.2)
+    },
 
-            Separately, Ford reported strong demand for its latest models and said orders remain healthy,
-            supporting a more optimistic outlook for the quarter.
-            """,
-            "source": "CNBC",
-        },
+    # ===========================================
+    # TEST 8: ADSK - Enterprise caution
+    # Expected: ADSK slightly negative (~-0.25 to 0.05)
+    # ===========================================
+    {
+        "title": "Autodesk Sees Customers Taking Longer on Software Decisions",
+        "body": """
+        Autodesk said enterprise customers are extending evaluation periods for 
+        large software purchases amid economic uncertainty. Revenue grew modestly 
+        but new bookings were softer than hoped.
+        
+        The design software company maintained its annual guidance while 
+        acknowledging the near-term environment remains challenging. Cloud 
+        transition continues to progress as expected.
+        
+        Tech sector analysts noted this is consistent with broader trends of 
+        cautious IT spending rather than company-specific issues.
+        """,
+        "source": "MarketWatch",
+        "expected_range": (-0.3, 0.1)
+    },
 
-        # 5) Bank stress: bank negative, “Fed”/macro mixed, sector negative
-        {
-            "title": "Bank of America Shares Slide After Margin Warning; Fed Comments Add Uncertainty",
-            "body": """
-            Bank of America warned that net interest margins may decline due to deposit competition.
-            Shares fell as investors worried about profitability.
+    # ===========================================
+    # TEST 9: Mixed sector - some up, some flat
+    # Expected: Varied but moderate scores
+    # ===========================================
+    {
+        "title": "Tech Sector Shows Diverging Trends Across Sub-Industries",
+        "body": """
+        Technology stocks showed mixed performance as investors rotated within 
+        the sector. NVIDIA held steady on stable AI demand expectations, while 
+        Autodesk faced questions about enterprise spending.
+        
+        The semiconductor segment remained supported by data center buildouts, 
+        though software companies reported more cautious customer behavior. 
+        Cloud infrastructure spending continues but at a measured pace.
+        
+        Analysts suggested the tech sector overall is in a consolidation phase 
+        after strong gains, with stock selection becoming more important.
+        """,
+        "source": "Reuters",
+        "expected_range": (-0.2, 0.2)  # Overall
+    },
 
-            Federal Reserve officials said the path of rates will depend on data, adding uncertainty for banks.
-            The broader financial sector weakened on the comments.
-            """,
-            "source": "MarketWatch",
-        },
+    # ===========================================
+    # TEST 10: Regional - China/Asia cautiously optimistic
+    # Expected: Moderate positive for region (~0.0 to 0.25)
+    # ===========================================
+    {
+        "title": "Asian Markets Steady as China Data Shows Tentative Improvement",
+        "body": """
+        Markets in Hong Kong and Singapore traded in a narrow range as investors 
+        assessed mixed economic signals from China. Manufacturing data showed 
+        slight improvement while consumer spending remained subdued.
+        
+        Alibaba and other Chinese e-commerce stocks were little changed. Grab 
+        Holdings edged higher on continued progress in Southeast Asian markets.
+        
+        Regional analysts maintained a cautiously constructive view, noting that 
+        the worst fears about China's economy have not materialized while 
+        acknowledging recovery remains gradual.
+        """,
+        "source": "Financial Times",
+        "expected_range": (-0.15, 0.25)
+    },
 
-        # 6) Energy: oil surge positive for Exxon/Chevron, negative for airlines/consumer
-        {
-            "title": "Oil Prices Jump on Supply Shock; Exxon Gains While Airlines Warn of Higher Costs",
-            "body": """
-            Oil prices jumped after a supply disruption, boosting energy producers.
-            Exxon and Chevron shares rose as traders priced in stronger cash flows.
+    # ===========================================
+    # TEST 11: Financials/Real Estate - waiting mode
+    # Expected: Both slightly negative to neutral
+    # ===========================================
+    {
+        "title": "Banks and Property Stocks Await Fed Clarity on Rate Path",
+        "body": """
+        Financial and real estate stocks traded sideways as investors awaited 
+        more clarity from the Federal Reserve. Citigroup and peers saw modest 
+        moves on limited news flow.
+        
+        CBRE Group said commercial real estate activity remains muted but stable.
+        Bank analysts noted that net interest margin trends are well understood 
+        at this point, limiting surprises.
+        
+        Both sectors are expected to remain range-bound until there's greater 
+        conviction on the direction of interest rates and economic growth.
+        """,
+        "source": "Bloomberg",
+        "expected_range": (-0.2, 0.15)
+    },
 
-            Airlines warned that higher fuel costs could pressure earnings and force ticket price increases.
-            Consumer spending could also slow if energy prices remain elevated.
-            """,
-            "source": "Financial Times",
-        },
-
-        # 7) Litigation: big negative for one company, neutral for sector
-        {
-            "title": "Johnson & Johnson Hit With Lawsuit Ruling; Analysts Cut Estimates",
-            "body": """
-            Johnson & Johnson faced a major adverse court ruling in ongoing litigation.
-            Analysts said the decision increases financial risk and could lead to higher settlement costs.
-
-            Healthcare peers were largely unchanged as investors focused on company-specific exposure.
-            """,
-            "source": "Reuters",
-        },
-
-        # 8) Neutral/uncertain guidance: should trend closer to neutral
-        {
-            "title": "Amazon Signals Cautious Outlook; Results In Line With Expectations",
-            "body": """
-            Amazon reported results largely in line with expectations and reiterated cautious guidance.
-            Management said demand is steady but visibility remains limited due to macro uncertainty.
-
-            Analysts described the update as balanced, with neither a clear upside surprise nor a major miss.
-            """,
-            "source": "Bloomberg",
-        },
-
-        # 9) China exposure: Apple negative, US region mixed, China region negative
-        {
-            "title": "China Tightens Tech Rules; Apple Suppliers Face Disruption Risk",
-            "body": """
-            China announced tighter rules affecting technology supply chains, raising disruption risk.
-            Analysts warned Apple suppliers could see delays and higher compliance costs.
-
-            Markets reacted cautiously, with investors watching for potential spillover into US tech earnings.
-            """,
-            "source": "Reuters",
-        },
-
-        # 10) Strong positive for consumer brand, negative for competitor
-        {
-            "title": "Nike Beats Expectations With Strong Demand as Adidas Struggles With Inventory",
-            "body": """
-            Nike reported better-than-expected sales and said demand remained strong across key regions.
-            The company raised its outlook and highlighted improving profitability.
-
-            Adidas warned that elevated inventory levels are forcing discounts, pressuring margins.
-            Analysts said near-term results could remain challenged.
-            """,
-            "source": "FT",
-        },
-
-        # 11) Multiple entities in one paragraph (tests context window separation)
-        {
-            "title": "Alphabet Announces Major AI Expansion; Microsoft Faces Cloud Outage Backlash",
-            "body": """
-            Alphabet announced a major AI expansion and said new products could boost revenue growth.
-            Investors welcomed the strategy and analysts called the plan a catalyst.
-
-            In separate news, Microsoft faced backlash after a cloud outage disrupted customers.
-            Some clients reported operational losses and questioned reliability guarantees.
-            """,
-            "source": "Reuters",
-        },
-
-        # 12) Very negative scandal for one, positive recovery for another
-        {
-            "title": "Wells Fargo Fined Again for Compliance Failures as JPMorgan Sees Record Trading",
-            "body": """
-            Wells Fargo was fined again after regulators cited repeated compliance failures.
-            The penalty raised concerns about governance and ongoing oversight.
-
-            JPMorgan, meanwhile, reported record trading revenue and said market conditions were favorable.
-            Analysts praised execution and reaffirmed bullish views on the stock.
-            """,
-            "source": "Bloomberg",
-        },
-    ]
-
+    # ===========================================
+    # TEST 12: All tickers - quarterly roundup (balanced)
+    # Expected: Mix of slight positive/negative, nothing extreme
+    # ===========================================
+    {
+        "title": "Earnings Season Update: Companies Report Solid But Unspectacular Results",
+        "body": """
+        The latest batch of earnings showed companies generally meeting expectations 
+        without major surprises. NVIDIA maintained its outlook on AI chip demand.
+        General Electric reported steady aerospace trends. Citigroup navigated 
+        rate headwinds adequately.
+        
+        In Asia, Alibaba saw stabilizing China trends while Grab continued its 
+        gradual progress in Singapore and Southeast Asia. Both stocks were 
+        little changed on the updates.
+        
+        CBRE acknowledged ongoing commercial real estate challenges while Meta 
+        reported normalizing advertising conditions. Autodesk noted cautious 
+        enterprise spending.
+        
+        Overall, analysts characterized the earnings season as consistent with 
+        a soft landing scenario - not exciting but not alarming either.
+        """,
+        "source": "WSJ",
+        "expected_range": (-0.15, 0.2)  # Overall moderate
+    },
+]
     
     # Call models
     _ = get_sentiment(test_cases[0]['title'], test_cases[0]['body'], test_cases[0]['source'], None)
@@ -752,3 +904,5 @@ if __name__ == "__main__":
     
     print("\n" + "=" * 70)
     print("DONE")
+
+
