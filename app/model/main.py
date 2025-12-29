@@ -9,7 +9,7 @@ class ModelConfig:
     SENTIMENT_MODEL: str ="ProsusAI/finbert"
     MAX_SEQUENCE_LENGTH: int =512
     MIN_CONFIDENCE: float = 0.25
-    SPACY_MODEL: str ="en_core_web_lg" #strong model, can be changed to medium or small for faster performance 
+    SPACY_MODEL: str ="en_core_web_lg"
 
 _spacy_nlp = None
 _sentiment_analyzer = None
@@ -54,7 +54,10 @@ def get_ticker_lookup() -> tuple[dict, dict, set]:
             except Exception:
                 continue
     except ImportError:
-        pass
+            warnings.warn(
+            "Optional dependency 'pytickersymbols' not installed; using manual ticker mappings only.",
+            RuntimeWarning,
+        )
 
     # Manual mappings
     manual_mappings = {
