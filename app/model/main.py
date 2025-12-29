@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -16,6 +17,7 @@ _sentiment_analyzer = None
 _ticker_lookup = None
 _ticker_lookup_lower = None
 _known_tickers_set = None
+_phrase_matcher = None
 
 def get_spacy_nlp():
     """Load spaCy model once"""
@@ -201,27 +203,52 @@ def extract_entities_with_positions(text: str) -> list[EntityMention]:
                     relevance=0.85 if in_title else 0.65
                 ))
     
-    #Company name matching
-    for name, ticker in ticker_lookup_lower.items():
-        if len(name) >= 4 and ticker in known_tickers:
-            start = 0
-            while True:
-                pos = text_lower.find(name, start)
-                if pos == -1:
-                    break
-                pos_key = (pos, ticker)
-                if pos_key not in seen_positions:
-                    seen_positions.add(pos_key)
-                    in_title = pos < 200
-                    entities.append(EntityMention(
-                        text=text[pos:pos+len(name)],
-                        ticker=ticker,
-                        entity_type="TICKER",
-                        start=pos,
-                        end=pos + len(name),
-                        relevance=0.75 if in_title else 0.55
-                    ))
-                start = pos + 1
+    
+    def get_phrase_matcher():
+        global _phrase_matcher
+        if _phrase_matcher is not None:
+            return _phrase_matcher
+
+        from spacy.matcher import PhraseMatcher
+        nlp = get_spacy_nlp()
+        matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
+
+        _, ticker_lookup_lower, known_tickers = get_ticker_lookup()
+
+        # group phrases by ticker so we can map match -> ticker quickly
+        phrases_by_ticker: dict[str, list[str]] = {}
+        for name, ticker in ticker_lookup_lower.items():
+            if len(name) >= 4 and ticker in known_tickers:
+                phrases_by_ticker.setdefault(ticker, []).append(name)
+
+        # add patterns; use ticker as match_id
+        for ticker, names in phrases_by_ticker.items():
+            matcher.add(ticker, [nlp.make_doc(n) for n in names])
+
+        _phrase_matcher = matcher
+        return _phrase_matcher
+    
+    matcher = get_phrase_matcher()
+    nlp = get_spacy_nlp()
+    doc = nlp(text)
+
+    for match_id, start_i, end_i in matcher(doc):
+        ticker = nlp.vocab.strings[match_id]  # we stored ticker as the match_id string
+        span = doc[start_i:end_i]
+        pos_key = (span.start_char, ticker)
+        if pos_key in seen_positions:
+            continue
+        seen_positions.add(pos_key)
+
+        in_title = span.start_char < 200
+        entities.append(EntityMention(
+            text=span.text,
+            ticker=ticker,
+            entity_type="TICKER",
+            start=span.start_char,
+            end=span.end_char,
+            relevance=0.75 if in_title else 0.55
+        ))
     
     # 4. spaCy NER
     nlp = get_spacy_nlp()
@@ -520,7 +547,7 @@ def get_sentiment(
         
         # Type-specific multiplier
         if mentions[0].entity_type == "SECTOR":
-            final_confidence *= 0.85
+            final_confidence *= 0.65
         elif mentions[0].entity_type == "REGION":
             final_confidence *= 0.75
         
