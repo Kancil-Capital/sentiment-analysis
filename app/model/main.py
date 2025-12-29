@@ -1,7 +1,5 @@
 import re
-from dataclasses import dataclass, field
-from functools import lru_cache
-from typing import Optional
+from dataclasses import dataclass
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -277,16 +275,22 @@ def extract_entities_with_positions(text: str) -> list[EntityMention]:
     
     # 6. Region keywords
     for keyword, region in REGION_MAPPINGS.items():
-        pos = text_lower.find(keyword)
-        if pos != -1:
+        start = 0
+        while True:
+            pos = text_lower.find(keyword, start)
+            if pos == -1:
+                break
+
             entities.append(EntityMention(
-                text=keyword,
+                text=text[pos:pos + len(keyword)],
                 ticker=region,
                 entity_type="REGION",
                 start=pos,
                 end=pos + len(keyword),
                 relevance=0.6
             ))
+
+            start = pos + 1
     
     return entities
 
@@ -552,7 +556,7 @@ def get_sentiment_batch(
         return []
     
     _ = get_spacy_nlp()
-    analyzer = get_sentiment_analyzer()
+    _ = get_sentiment_analyzer()
 
     all_results = []
 

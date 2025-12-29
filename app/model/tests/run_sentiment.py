@@ -1,4 +1,4 @@
-from app.model.main import get_sentiment, get_sentiment_batch
+from app.model.main import get_sentiment, get_sentiment_batch, extract_entities_with_positions
 
 if __name__ == "__main__":
     import time
@@ -29,6 +29,14 @@ if __name__ == "__main__":
         "source": "Reuters",
         "expected_range": (0.1, 0.4)
     },
+    {
+        "title": "Fed signals patience as markets watch the US economy",
+        "body": """
+        The Fed said the US economy is cooling. In the US, investors expect rate cuts later.
+        Some analysts argue the United States will avoid recession, but the US labor market is mixed.
+        """,
+        "source": "Reuters"
+    }
 
 ]
     
