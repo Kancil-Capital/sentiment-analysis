@@ -61,6 +61,8 @@ deprecation==2.1.0
     # via
     #   postgrest
     #   storage3
+dotenv==0.9.9
+    # via sentiment-analysis (pyproject.toml)
 en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl
     # via sentiment-analysis (pyproject.toml)
 filelock==3.20.1
@@ -225,6 +227,8 @@ python-dateutil==2.9.0.post0
     # via
     #   pandas
     #   strictyaml
+python-dotenv==1.2.1
+    # via dotenv
 pytickersymbols==1.15.0
     # via sentiment-analysis (pyproject.toml)
 pytz==2025.2
