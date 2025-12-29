@@ -1688,7 +1688,7 @@ requires-dist = [
 =======
     { name = "pycountry", specifier = ">=22.3" },
     { name = "pytickersymbols", specifier = ">=1.15" },
-    { name = "spacy", specifier = ">=3.7" },
+    { name = "spacy", specifier = ">=3.7.2,<3.8.0" },
     { name = "supabase", specifier = ">=2.25.1" },
     { name = "torch", specifier = ">=2.0" },
     { name = "transformers", specifier = ">=4.30" },

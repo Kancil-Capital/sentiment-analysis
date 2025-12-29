@@ -51,7 +51,6 @@ def get_ticker_lookup() -> tuple[dict, dict, set]:
                     name = stock.get('name', '').lower()
                     for sym in stock.get('symbols', []):
                         ticker = sym.get('yahoo', sym.get('google', ''))
-                        # FILTER: Only US tickers (no dots)
                         if name and ticker and '.' not in ticker:
                             _ticker_lookup[name] = ticker
             except Exception:
@@ -59,7 +58,7 @@ def get_ticker_lookup() -> tuple[dict, dict, set]:
     except ImportError:
         pass
 
-    # Manual mappings (guaranteed clean US tickers)
+    # Manual mappings
     manual_mappings = {
         # Tech
         'apple': 'AAPL', 'microsoft': 'MSFT', 'google': 'GOOGL', 'alphabet': 'GOOGL',
@@ -122,12 +121,12 @@ SECTOR_KEYWORDS = {
 }
 
 REGION_MAPPINGS = {
-    'united states': 'US', 'usa': 'US', 'america': 'US', 'u.s.': 'US',
+    'united states': 'United States', 'usa': 'United States', 'america': 'United States', 'u.s.': 'United States',
     'china': 'China', 'chinese': 'China',
     'japan': 'Japan', 'japanese': 'Japan',
     'united kingdom': 'UK', 'britain': 'UK', 'uk': 'UK',
     'germany': 'EU', 'france': 'EU', 'europe': 'EU', 'european': 'EU',
-    'federal reserve': 'US', 'fed': 'US', 'wall street': 'US',
+    'federal reserve': 'United States', 'fed': 'United States', 'wall street': 'United States',
     'ecb': 'EU', 'european central bank': 'EU',
     'hong kong': 'Hong Kong', 'hk': 'Hong Kong',
     'singapore': 'Singapore', 'singaporean': 'Singapore',
@@ -459,7 +458,7 @@ def get_sentiment(
         if ent.entity_type == "TICKER":
             key = ent.ticker
         else:
-            key = f"{ent.entity_type}:{ent.ticker}"
+            key = ent.ticker  # SECTOR or REGION uses its name as key
         
         if key not in entity_groups:
             entity_groups[key] = []
@@ -605,17 +604,23 @@ if __name__ == "__main__":
     # Expected: BABA slightly negative (~-0.3 to -0.1)
     # ===========================================
     {
-        "title": "Alibaba Sees Stabilizing Trends in China Despite Cautious Consumer",
+        "title": "US Economy Surges as Strong Jobs Report Exceeds All Expectations",
         "body": """
-        Alibaba reported that e-commerce trends in China have stabilized after a 
-        difficult period. Revenue came in roughly in line with expectations.
+        The United States economy delivered a blockbuster jobs report that far exceeded 
+        analyst expectations, with employers adding 350,000 positions last month. The 
+        robust data has sparked renewed optimism about America's economic strength.
         
-        Management said consumer spending remains cautious but has stopped deteriorating.
-        The company is focused on cost discipline while investing selectively in 
-        growth areas. Margins improved slightly due to efficiency measures.
+        Federal Reserve officials welcomed the strong employment figures, noting that 
+        the US labor market remains remarkably resilient. Wage growth accelerated, 
+        signaling healthy demand for workers across the American economy.
         
-        Hong Kong shares edged lower as investors await clearer signs of recovery 
-        in the Chinese consumer market.
+        Wall Street rallied on the news, with major indices posting solid gains as 
+        investors celebrated the positive economic momentum. The data suggests the 
+        U.S. is on track for sustained growth without triggering concerning inflation.
+        
+        Economists now project the United States will outperform other developed 
+        economies this year, cementing America's position as a key driver of global 
+        growth. Consumer confidence in the USA has reached multi-year highs.
         """,
         "source": "Bloomberg",
         "expected_range": (-0.3, 0.1)
