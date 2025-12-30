@@ -30,6 +30,9 @@ uv sync
 
 # 4. Install the project as an editable package
 uv pip install -e .
+
+#5. Install the spaCy model needed (should take around 6 minutes)
+uv run python -m spacy download en_core_web_lg
 ```
 
 **Running the application:**

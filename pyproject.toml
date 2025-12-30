@@ -3,16 +3,23 @@ name = "sentiment-analysis"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.11,<3.13"
+
 dependencies = [
     "dash>=3.3.0",
-    "dotenv>=0.9.9",
-    "numpy>=2.3.5",
+    "numpy<2.0",
     "pandas>=2.3.3",
     "plotly>=6.5.0",
     "selenium>=4.39.0",
     "supabase>=2.25.1",
     "yfinance>=0.2.66",
+    "pycountry>=22.3",
+    "pytickersymbols>=1.15",
+    "spacy>=3.7.2, <3.8.0",
+    "transformers>=4.30",
+    "torch>=2.0",
+    "en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl",
+    "dotenv>=0.9.9",
 ]
 
 [build-system]
@@ -21,3 +28,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
