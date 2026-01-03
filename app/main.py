@@ -147,7 +147,7 @@ def update_graph(n_clicks, selected_affected, ticker, start_date, end_date, arti
         )
     
     # Update axes
-    fig.update_xaxes(title_text="Date")
+    fig.update_xaxes(title_text="Date", rangeslider={"visible": False})
     fig.update_yaxes(title_text="Price ($)", secondary_y=False)
     fig.update_yaxes(title_text="Sentiment Score", secondary_y=True, range=[-1, 1])
     

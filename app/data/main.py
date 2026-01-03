@@ -43,7 +43,8 @@ def get_articles(
 
     if not ticker_data:
         # Ticker not yet in database, trigger new add and try again
-        ticker_data = insert_ticker(ticker, sb)
+        # ticker_data = insert_ticker(ticker, sb)
+        return pd.DataFrame(columns=["title", "body", "url", "timestamp", "source", "author", "sentiment", "confidence", "affected"])
 
     keywords = [
         ticker_data[0]["symbol"], ticker_data[0]["region"], ticker_data[0]["sector"], ticker_data[0]["country"]
