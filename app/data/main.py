@@ -34,6 +34,7 @@ def get_articles(
     author: str | None
     sentiment: float
     confidence: float
+    affected: str (the affected party of the article)
     """
     ticker_data = sb.table("tickers")\
         .select("*")\
@@ -56,7 +57,8 @@ def get_articles(
     }).execute().data
 
     df = pd.DataFrame(articles)
-    df = df[["title", "body", "url", "timestamp", "source", "author", "sentiment", "confidence"]]
+    df["timestamp"] = df["a_timestamp"]
+    df = df[["title", "body", "url", "timestamp", "source", "author", "sentiment", "confidence", "affected"]]
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
     return df
@@ -91,6 +93,8 @@ def get_price_data(
         "Close": "close",
         "Volume": "volume"
     }, inplace=True)
+
+    df.columns = df.columns.droplevel("Ticker")
  
     return df[["timestamp", "open", "high", "low", "close", "volume"]]
 
