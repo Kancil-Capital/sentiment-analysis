@@ -1,340 +1,551 @@
+"""
+SentimentPulse Dashboard - Main Application
+"""
 from dotenv import load_dotenv
-
 load_dotenv(".env")
 
 from datetime import datetime, timedelta
 import pandas as pd
-from dash import Dash, html, dcc, Input, Output, State
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+from dash import Dash, html, dcc, Input, Output
 
 from app.data.main import get_articles, get_price_data
-import re
-from app.model.main import get_sentiment, get_sentiment_batch
-from app.viz.data_loader import generate_sentiment_data, generate_keywords, generate_news_articles
-import numpy as np
-app = Dash(__name__, title="Sentiment Pulse")
+from app.figures import (
+    create_price_sentiment_chart,
+    create_candlestick_chart,
+    create_sentiment_histogram,
+    create_sentiment_breakdown_chart,
+    create_lag_correlation_chart,
+    create_lag_heatmap,
+    create_keyword_cloud,
+    COLORS
+)
+
+app = Dash(__name__, title="SentimentPulse")
 server = app.server
 
-app.layout = html.Div([
-    # Header
-    html.Div([
-        html.Div([
-            html.Div([
-                html.Div('📈', style={'fontSize': '24px', 'marginRight': '10px'}),
-                html.Div([
-                    html.Div([
-                        html.Span('Sentiment', style={'color': '#fff', 'fontWeight': 'bold'}),
-                        html.Span('Pulse', style={'color': '#00d4ff', 'fontWeight': 'bold'})
-                    ]),
-                    html.Div('Investment Sentiment Analysis', 
-                            style={'fontSize': '12px', 'color': '#888'})
-                ])
-            ], style={'display': 'flex', 'alignItems': 'center'}),
-        ], style={'flex': '1'}),
-        
-        html.Div([
-            dcc.Dropdown(
-                id='ticker-dropdown',
-                options=[
-                    {'label': ticker, 'value': ticker} 
-                    for ticker in ['ADSK', 'BABA', 'C', 'CBRE', 'GE', 'GRAB', 'META', 'NVDA']
-                ],
-                value='META',
-                style={
-                    'width': '150px',
-                    'marginRight': '20px',
-                    'backgroundColor': "#dce0e7",
-                    'color': '#333'
-                }
-            ),
-            html.Div([
-                html.Span('↗ +2.4%', style={'color': '#00ff88', 'marginRight': '10px'}),
-                html.Span('24h', style={'color': '#888', 'marginRight': '20px'}),
-                html.Span('📊 0.68', style={'color': '#888', 'marginRight': '10px'}),
-                html.Span('Sentiment', style={'color': '#888', 'marginRight': '20px'}),
-                html.Span('🟢 Live', style={'color': '#00ff88'})
-            ], style={'display': 'flex', 'alignItems': 'center'})
-        ], style={'display': 'flex', 'alignItems': 'center'})
-    ], style={
-        'display': 'flex',
-        'justifyContent': 'space-between',
-        'padding': '20px',
-        'backgroundColor': '#0d1117',
-        'borderBottom': '1px solid #30363d'
-    }),
-    
-    # Main content
-    html.Div([
-        # Left column - Charts
-        html.Div([
-            # Price & Sentiment Overlay
-            html.Div([
-                html.H3('Price & Sentiment Overlay', 
-                        style={'color': '#fff', 'fontSize': '18px', 'marginBottom': '5px'}),
-                html.P('Dual-axis visualization with event annotations',
-                      style={'color': '#888', 'fontSize': '12px', 'marginBottom': '15px'}),
-                dcc.Graph(id='price-sentiment-chart', config={'displayModeBar': False})
-            ], style={
-                'backgroundColor': '#161b22',
-                'padding': '20px',
-                'borderRadius': '8px',
-                'marginBottom': '20px'
-            }),
-            
-            # Keyword Explorer
-            html.Div([
-                html.Div([
-                    html.H3('💬 Keyword Explorer', 
-                            style={'color': '#fff', 'fontSize': '18px'}),
-                    html.Div([
-                        html.Button('All', id='filter-all', n_clicks=0,
-                                   style={'marginRight': '10px', 'padding': '5px 15px',
-                                          'backgroundColor': '#00d4ff', 'border': 'none',
-                                          'borderRadius': '15px', 'color': '#000', 'cursor': 'pointer'}),
-                        html.Button('Bullish', id='filter-bullish', n_clicks=0,
-                                   style={'marginRight': '10px', 'padding': '5px 15px',
-                                          'backgroundColor': '#30363d', 'border': 'none',
-                                          'borderRadius': '15px', 'color': '#fff', 'cursor': 'pointer'}),
-                        html.Button('Bearish', id='filter-bearish', n_clicks=0,
-                                   style={'padding': '5px 15px', 'backgroundColor': '#30363d',
-                                          'border': 'none', 'borderRadius': '15px',
-                                          'color': '#fff', 'cursor': 'pointer'})
-                    ])
-                ], style={'display': 'flex', 'justifyContent': 'space-between', 
-                          'alignItems': 'center', 'marginBottom': '20px'}),
-                
-                html.Div(id='keyword-cloud', style={'minHeight': '200px'})
-            ], style={
-                'backgroundColor': '#161b22',
-                'padding': '20px',
-                'borderRadius': '8px',
-                'marginBottom': '20px'
-            }),
-            
-            # Lag Correlation Analysis
-            html.Div([
-                html.H3('Lag Correlation Analysis',
-                        style={'color': '#fff', 'fontSize': '18px', 'marginBottom': '5px'}),
-                html.P('Sentiment ↔ Next-day return relationship',
-                      style={'color': '#888', 'fontSize': '12px', 'marginBottom': '15px'}),
-                dcc.Graph(id='correlation-chart', config={'displayModeBar': False})
-            ], style={
-                'backgroundColor': '#161b22',
-                'padding': '20px',
-                'borderRadius': '8px'
-            })
-        ], style={'flex': '2', 'marginRight': '20px'}),
-        
-        # Right column - Stats and News
-        html.Div([
-            # Aggregated Sentiment
-            html.Div([
-                html.H3('Aggregated Sentiment',
-                        style={'color': '#fff', 'fontSize': '18px', 'marginBottom': '5px'}),
-                html.P('Daily statistics & filters',
-                      style={'color': '#888', 'fontSize': '12px', 'marginBottom': '20px'}),
-                
-                html.Div([
-                    html.Div([
-                        html.Div('📈 DAILY MEAN', style={'color': '#888', 'fontSize': '11px'}),
-                        html.Div('+0.170', id='daily-mean',
-                                style={'color': '#00ff88', 'fontSize': '24px', 'fontWeight': 'bold'})
-                    ], style={'marginBottom': '15px'}),
-                    
-                    html.Div([
-                        html.Div('📊 DAILY MEDIAN', style={'color': '#888', 'fontSize': '11px'}),
-                        html.Div('+0.131', id='daily-median',
-                                style={'color': '#00ff88', 'fontSize': '24px', 'fontWeight': 'bold'})
-                    ], style={'marginBottom': '15px'}),
-                    
-                    html.Div([
-                        html.Div('📈 NET SENTIMENT', style={'color': '#888', 'fontSize': '11px'}),
-                        html.Div('+15.3', id='net-sentiment',
-                                style={'color': '#00ff88', 'fontSize': '24px', 'fontWeight': 'bold'})
-                    ], style={'marginBottom': '15px'}),
-                    
-                    html.Div([
-                        html.Div('🔗 CORRELATION', style={'color': '#888', 'fontSize': '11px'}),
-                        html.Div('0.42 1d lag', id='correlation',
-                                style={'color': '#fff', 'fontSize': '20px', 'fontWeight': 'bold'})
-                    ], style={'marginBottom': '20px'}),
-                    
-                    html.Hr(style={'borderColor': '#30363d', 'margin': '20px 0'}),
-                    
-                    html.Div([
-                        html.Div('⚡ Confidence Filter', 
-                                style={'color': '#fff', 'fontSize': '14px', 'marginBottom': '10px'}),
-                        html.Div('0.00', style={'color': '#00d4ff', 'fontSize': '20px', 'marginBottom': '10px'}),
-                        dcc.Slider(0, 1, 0.1, value=0, id='confidence-slider',
-                                  marks=None, tooltip={"placement": "bottom", "always_visible": False}),
-                        html.P('Filter data points with sentiment magnitude below threshold',
-                              style={'color': '#666', 'fontSize': '11px', 'marginTop': '10px'})
-                    ], style={'marginBottom': '20px'}),
-                    
-                    html.Div([
-                        html.Div('Total Articles', style={'color': '#888', 'fontSize': '12px'}),
-                        html.Div('150', id='total-articles',
-                                style={'color': '#fff', 'fontSize': '24px', 'fontWeight': 'bold'}),
-                        html.Div([
-                            html.Div(style={'width': '30%', 'height': '8px', 
-                                          'backgroundColor': '#ff4444', 'borderRadius': '4px 0 0 4px'}),
-                            html.Div(style={'width': '20%', 'height': '8px', 
-                                          'backgroundColor': '#888'}),
-                            html.Div(style={'width': '50%', 'height': '8px', 
-                                          'backgroundColor': '#00ff88', 'borderRadius': '0 4px 4px 0'})
-                        ], style={'display': 'flex', 'marginTop': '10px'}),
-                        html.Div([
-                            html.Span('Negative', style={'color': '#ff4444', 'fontSize': '10px'}),
-                            html.Span('Neutral', style={'color': '#888', 'fontSize': '10px', 'margin': '0 20px'}),
-                            html.Span('Positive', style={'color': '#00ff88', 'fontSize': '10px'})
-                        ], style={'marginTop': '5px'})
-                    ])
-                ])
-            ], style={
-                'backgroundColor': '#161b22',
-                'padding': '20px',
-                'borderRadius': '8px',
-                'marginBottom': '20px'
-            }),
-            
-            # News Drill-Down
-            html.Div([
-                html.H3('📰 News Drill-Down',
-                        style={'color': '#fff', 'fontSize': '18px', 'marginBottom': '15px'}),
-                html.Div(id='news-articles')
-            ], style={
-                'backgroundColor': '#161b22',
-                'padding': '20px',
-                'borderRadius': '8px'
-            })
-        ], style={'flex': '1'})
-    ], style={'display': 'flex', 'padding': '20px'})
-], style={'backgroundColor': '#0d1117', 'minHeight': '100vh', 'fontFamily': 'Arial, sans-serif'})
 
-@app.callback(
-    [Output('price-sentiment-chart', 'figure'),
-     Output('correlation-chart', 'figure'),
-     Output('keyword-cloud', 'children'),
-     Output('news-articles', 'children'),
-     Output('daily-mean', 'children'),
-     Output('daily-median', 'children'),
-     Output('net-sentiment', 'children'),
-     Output('correlation', 'children')],
-    [Input('ticker-dropdown', 'value'),
-     Input('confidence-slider', 'value')]
-)
-def update_dashboard(ticker, confidence):
-    # --- Define date range ---
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=30)
-    
-    # --- Fetch price data ---
-    price_df = get_price_data(ticker, start_date, end_date)
-    if price_df.empty:
-        price_df = pd.DataFrame({'timestamp': [], 'close': []})
-    
-    # --- Fetch articles ---
-    articles_df = get_articles(ticker, start_date, end_date)
+def sort_articles(articles_df: pd.DataFrame, sort_by: str) -> pd.DataFrame:
+    """Sort articles based on selected criteria."""
     if articles_df.empty:
-        articles_df = pd.DataFrame(columns=['title','body','sentiment','confidence','timestamp','source'])
-    
-    # --- Filter articles by confidence ---
-    filtered_articles = articles_df[articles_df['confidence'] >= confidence]
+        return articles_df
 
-    # --- Aggregate daily sentiment ---
-    if not filtered_articles.empty:
-        sentiment_df = pd.DataFrame({
-            'date': pd.to_datetime(filtered_articles['timestamp']).dt.date,
-            'sentiment': filtered_articles['sentiment']
-        })
-        daily_sentiment = sentiment_df.groupby('date').mean()
-    else:
-        daily_sentiment = pd.DataFrame(columns=['sentiment'])
+    if sort_by == 'impact_desc':
+        return articles_df.assign(abs_sent=articles_df['sentiment'].abs()).sort_values('abs_sent', ascending=False).drop(columns='abs_sent')
+    elif sort_by == 'impact_asc':
+        return articles_df.assign(abs_sent=articles_df['sentiment'].abs()).sort_values('abs_sent', ascending=True).drop(columns='abs_sent')
+    elif sort_by == 'recent':
+        return articles_df.sort_values('timestamp', ascending=False)
+    elif sort_by == 'oldest':
+        return articles_df.sort_values('timestamp', ascending=True)
+    elif sort_by == 'positive':
+        return articles_df.sort_values('sentiment', ascending=False)
+    elif sort_by == 'negative':
+        return articles_df.sort_values('sentiment', ascending=True)
+    return articles_df
 
-    # --- Align sentiment with price data ---
-    price_df['date'] = pd.to_datetime(price_df['timestamp']).dt.date
-    combined_df = pd.merge(price_df, daily_sentiment, on='date', how='left')
-    combined_df['sentiment'].fillna(0, inplace=True)  # fill missing sentiment with 0
 
-    # --- Price & Sentiment Chart ---
-    price_fig = go.Figure()
-    price_fig.add_trace(go.Scatter(
-        x=combined_df['timestamp'], y=combined_df['close'],
-        name='Price', line=dict(color='#00d4ff', width=2), yaxis='y1'
-    ))
-    price_fig.add_trace(go.Scatter(
-        x=combined_df['timestamp'], y=combined_df['sentiment'],
-        name='Sentiment', line=dict(color='#00ff88', width=2, dash='dot'), yaxis='y2'
-    ))
-    price_fig.update_layout(
-        plot_bgcolor='#0d1117', paper_bgcolor='#161b22', font=dict(color='#fff'),
-        xaxis=dict(gridcolor='#30363d', showgrid=True),
-        yaxis=dict(title='Price ($)', side='left', gridcolor='#30363d', showgrid=True),
-        yaxis2=dict(title='Sentiment', side='right', overlaying='y', showgrid=False),
-        margin=dict(l=40, r=40, t=20, b=40), height=350, hovermode='x unified'
-    )
-
-    # --- Correlation Chart (sentiment vs next-day returns) ---
-    if len(combined_df) > 1:
-        returns = combined_df['close'].diff().shift(-1).fillna(0)  # next-day return
-        corr_fig = go.Figure()
-        corr_fig.add_trace(go.Scatter(
-            x=combined_df['sentiment'][:-1], y=returns[:-1],
-            mode='markers', marker=dict(size=8, color='#00d4ff', opacity=0.6),
-            showlegend=False
-        ))
-        if combined_df['sentiment'][:-1].std() > 0 and returns[:-1].std() > 0:
-            corr_value = np.corrcoef(combined_df['sentiment'][:-1], returns[:-1])[0,1]
-        else:
-            corr_value = 0.0
-    else:
-        corr_fig = go.Figure()
-        corr_value = 0.0
-
-    corr_fig.update_layout(
-        plot_bgcolor='#0d1117', paper_bgcolor='#161b22', font=dict(color='#fff'),
-        xaxis=dict(title='Sentiment', gridcolor='#30363d', showgrid=True),
-        yaxis=dict(title='Next-day Return', gridcolor='#30363d', showgrid=True),
-        margin=dict(l=40, r=40, t=20, b=40), height=300,
-        annotations=[dict(
-            text=f'R² = {corr_value**2:.2f}', x=0.05, y=0.95, xref='paper', yref='paper',
-            showarrow=False, font=dict(color='#fff', size=12)
+def render_articles_list(articles_df: pd.DataFrame) -> list:
+    """Render all articles as Dash HTML components."""
+    if articles_df.empty:
+        return [html.Div(
+            "No articles available for selected filters",
+            style={
+                'textAlign': 'center',
+                'color': COLORS['text_muted'],
+                'padding': '20px'
+            }
         )]
+
+    articles = []
+    for _, row in articles_df.iterrows():
+        sentiment_color = COLORS['accent_green'] if row['sentiment'] > 0 else COLORS['accent_red'] if row['sentiment'] < 0 else COLORS['text_muted']
+        sentiment_arrow = '↗' if row['sentiment'] > 0 else '↘' if row['sentiment'] < 0 else '→'
+
+        # Format affected parties
+        affected_text = ""
+        if 'affected' in row and pd.notna(row['affected']):
+            if isinstance(row['affected'], list):
+                affected_text = f" • {', '.join(row['affected'])}"
+            elif isinstance(row['affected'], str):
+                affected_text = f" • {row['affected']}"
+
+        articles.append(html.Div([
+            html.Div([
+                html.Span(row['source'], style={'color': COLORS['accent_cyan'], 'fontSize': '12px'}),
+                html.Span(f" • {row['timestamp'].strftime('%Y-%m-%d %H:%M')}", style={'color': COLORS['text_muted'], 'fontSize': '12px'}),
+                html.Span(affected_text, style={'color': COLORS['text_muted'], 'fontSize': '11px', 'fontStyle': 'italic'}),
+                html.Span(
+                    f" {sentiment_arrow} {row['sentiment']:.2f}",
+                    style={'color': sentiment_color, 'fontSize': '12px', 'float': 'right'}
+                )
+            ]),
+            html.A(
+                row['title'],
+                href=row['url'],
+                target='_blank',
+                style={'color': COLORS['text'], 'fontWeight': 'bold', 'textDecoration': 'none', 'display': 'block', 'marginTop': '5px'}
+            ),
+            html.P(
+                row['body'][:200] + '...' if len(str(row['body'])) > 200 else str(row['body']),
+                style={'color': COLORS['text_muted'], 'fontSize': '12px', 'marginTop': '5px', 'lineHeight': '1.4'}
+            )
+        ], style={
+            'padding': '15px',
+            'backgroundColor': COLORS['background'],
+            'borderRadius': '6px',
+            'marginBottom': '10px',
+            'border': f"1px solid {COLORS['border']}"
+        }))
+
+    return articles
+
+
+# Calculate default date range
+end_date = datetime.now().date()
+start_date = end_date - timedelta(days=30)
+min_date = end_date - timedelta(days=365)
+
+# Layout
+app.layout = html.Div(style={'backgroundColor': COLORS['background'], 'minHeight': '100vh', 'padding': '20px'}, children=[
+    # Header
+    html.Div(style={
+        'backgroundColor': COLORS['card'],
+        'padding': '20px',
+        'borderRadius': '8px',
+        'marginBottom': '20px',
+        'border': f"1px solid {COLORS['border']}"
+    }, children=[
+        html.Div(style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'flexWrap': 'wrap', 'gap': '15px'}, children=[
+            html.H1("SentimentPulse", style={'color': COLORS['text'], 'margin': '0', 'fontSize': '28px'}),
+            html.Div(style={'display': 'flex', 'gap': '15px', 'alignItems': 'center', 'flexWrap': 'wrap'}, children=[
+                html.Div([
+                    html.Label("Ticker", style={'color': COLORS['text_muted'], 'fontSize': '12px', 'marginBottom': '5px', 'display': 'block'}),
+                    dcc.Dropdown(
+                        id='ticker-dropdown',
+                        options=[
+                            {'label': ticker, 'value': ticker}
+                            for ticker in ['ADSK', 'BABA', 'C', 'CBRE', 'GE', 'GRAB', 'META', 'NVDA']
+                        ],
+                        value='META',
+                        style={
+                            'width': '120px',
+                            'backgroundColor': COLORS['background'],
+                            'color': COLORS['text']
+                        },
+                        clearable=False
+                    )
+                ]),
+                html.Div([
+                    html.Label("Date Range", style={'color': COLORS['text_muted'], 'fontSize': '12px', 'marginBottom': '5px', 'display': 'block'}),
+                    dcc.DatePickerRange(
+                        id='date-picker',
+                        start_date=start_date,
+                        end_date=end_date,
+                        min_date_allowed=min_date,
+                        max_date_allowed=end_date,
+                        style={'backgroundColor': COLORS['background']}
+                    )
+                ])
+            ])
+        ])
+    ]),
+
+    # Filters Row
+    html.Div(style={
+        'backgroundColor': COLORS['card'],
+        'padding': '20px',
+        'borderRadius': '8px',
+        'marginBottom': '20px',
+        'border': f"1px solid {COLORS['border']}"
+    }, children=[
+        html.Div(style={'display': 'flex', 'gap': '30px', 'alignItems': 'center', 'flexWrap': 'wrap'}, children=[
+            html.Div(style={'flex': '1', 'minWidth': '300px'}, children=[
+                html.Label("Confidence Threshold", style={'color': COLORS['text_muted'], 'fontSize': '12px', 'marginBottom': '10px', 'display': 'block'}),
+                dcc.Slider(
+                    id='confidence-slider',
+                    min=0.0,
+                    max=1.0,
+                    step=0.05,
+                    value=0.5,
+                    marks={i/10: f"{i/10:.1f}" for i in range(0, 11, 2)},
+                    tooltip={"placement": "bottom", "always_visible": True}
+                )
+            ]),
+            html.Div(style={'flex': '1', 'minWidth': '300px'}, children=[
+                html.Label("Affected Parties", style={'color': COLORS['text_muted'], 'fontSize': '12px', 'marginBottom': '5px', 'display': 'block'}),
+                dcc.Checklist(
+                    id='affected-parties-checklist',
+                    options=[],
+                    value=[],
+                    inline=True,
+                    style={'color': COLORS['text'], 'display': 'flex', 'flexWrap': 'wrap', 'gap': '10px'},
+                    labelStyle={'marginRight': '15px', 'display': 'flex', 'alignItems': 'center'}
+                )
+            ])
+        ])
+    ]),
+
+    # Main Content Grid
+    html.Div(style={'display': 'grid', 'gridTemplateColumns': '60% 40%', 'gap': '20px', 'marginBottom': '20px'}, children=[
+        # Left Column
+        html.Div(children=[
+            # Price & Sentiment Overlay
+            html.Div(style={
+                'backgroundColor': COLORS['card'],
+                'padding': '20px',
+                'borderRadius': '8px',
+                'marginBottom': '20px',
+                'border': f"1px solid {COLORS['border']}"
+            }, children=[
+                html.H3("Price & Sentiment", style={'color': COLORS['text'], 'fontSize': '16px', 'marginBottom': '15px'}),
+                dcc.Graph(id='price-sentiment-chart', config={'displayModeBar': False})
+            ]),
+
+            # Candlestick Chart
+            html.Div(style={
+                'backgroundColor': COLORS['card'],
+                'padding': '20px',
+                'borderRadius': '8px',
+                'border': f"1px solid {COLORS['border']}"
+            }, children=[
+                html.H3("Price Action", style={'color': COLORS['text'], 'fontSize': '16px', 'marginBottom': '15px'}),
+                dcc.Graph(id='candlestick-chart', config={'displayModeBar': False})
+            ])
+        ]),
+
+        # Right Column
+        html.Div(children=[
+            # Statistics Panel
+            html.Div(style={
+                'backgroundColor': COLORS['card'],
+                'padding': '20px',
+                'borderRadius': '8px',
+                'marginBottom': '20px',
+                'border': f"1px solid {COLORS['border']}"
+            }, children=[
+                html.H3("Statistics", style={'color': COLORS['text'], 'fontSize': '16px', 'marginBottom': '15px'}),
+                html.Div(id='statistics-panel')
+            ]),
+
+            # News Drill-Down
+            html.Div(style={
+                'backgroundColor': COLORS['card'],
+                'padding': '20px',
+                'borderRadius': '8px',
+                'border': f"1px solid {COLORS['border']}"
+            }, children=[
+                html.Div(style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '15px'}, children=[
+                    html.H3("News Articles", style={'color': COLORS['text'], 'fontSize': '16px', 'margin': '0'}),
+                    dcc.Dropdown(
+                        id='sort-dropdown',
+                        options=[
+                            {'label': 'Most Recent', 'value': 'recent'},
+                            {'label': 'Oldest', 'value': 'oldest'},
+                            {'label': 'Most Impactful', 'value': 'impact_desc'},
+                            {'label': 'Least Impactful', 'value': 'impact_asc'},
+                            {'label': 'Most Positive', 'value': 'positive'},
+                            {'label': 'Most Negative', 'value': 'negative'}
+                        ],
+                        value='recent',
+                        style={'width': '180px', 'backgroundColor': COLORS['background']},
+                        clearable=False
+                    )
+                ]),
+                html.Div(
+                    id='news-articles',
+                    style={'maxHeight': '500px', 'overflowY': 'auto'}
+                )
+            ])
+        ])
+    ]),
+
+    # Bottom Row - Sentiment Analysis
+    html.Div(style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '20px', 'marginBottom': '20px'}, children=[
+        # Sentiment Breakdown
+        html.Div(style={
+            'backgroundColor': COLORS['card'],
+            'padding': '20px',
+            'borderRadius': '8px',
+            'border': f"1px solid {COLORS['border']}"
+        }, children=[
+            html.H3("Sentiment Breakdown", style={'color': COLORS['text'], 'fontSize': '16px', 'marginBottom': '15px'}),
+         dcc.Graph(id='sentiment-breakdown-chart', config={'displayModeBar': False}, style={'height': '250px'})
+        ]),
+
+        # Sentiment Histogram
+        html.Div(style={
+            'backgroundColor': COLORS['card'],
+            'padding': '20px',
+            'borderRadius': '8px',
+            'border': f"1px solid {COLORS['border']}"
+        }, children=[
+            html.H3("Sentiment Distribution", style={'color': COLORS['text'], 'fontSize': '16px', 'marginBottom': '15px'}),
+            dcc.Graph(id='sentiment-histogram', config={'displayModeBar': False}, style={'height': '250px'})
+        ])
+    ]),
+
+    # Keyword Cloud
+    html.Div(style={
+        'backgroundColor': COLORS['card'],
+        'padding': '20px',
+        'borderRadius': '8px',
+        'marginBottom': '20px',
+        'border': f"1px solid {COLORS['border']}"
+    }, children=[
+        html.H3("Key Themes", style={'color': COLORS['text'], 'fontSize': '16px', 'marginBottom': '15px'}),
+        dcc.Graph(id='keyword-cloud', config={'displayModeBar': False})
+    ]),
+
+    # Correlation Analysis
+    html.Div(style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '20px'}, children=[
+        # Lag Correlation Scatter
+        html.Div(style={
+            'backgroundColor': COLORS['card'],
+            'padding': '20px',
+            'borderRadius': '8px',
+            'border': f"1px solid {COLORS['border']}"
+        }, children=[
+            html.H3("Sentiment vs Returns", style={'color': COLORS['text'], 'fontSize': '16px', 'marginBottom': '15px'}),
+            dcc.Graph(id='lag-correlation-scatter', config={'displayModeBar': False}, style={'height': '300px'})
+        ]),
+
+        # Lag Correlation Heatmap
+        html.Div(style={
+            'backgroundColor': COLORS['card'],
+            'padding': '20px',
+            'borderRadius': '8px',
+            'border': f"1px solid {COLORS['border']}"
+        }, children=[
+            html.H3("Lag Correlation", style={'color': COLORS['text'], 'fontSize': '16px', 'marginBottom': '15px'}),
+            dcc.Graph(id='lag-correlation-heatmap', config={'displayModeBar': False}, style={'height': '150px'})
+        ])
+    ])
+])
+
+
+# Main Callback
+@app.callback(
+    [
+        Output('price-sentiment-chart', 'figure'),
+        Output('candlestick-chart', 'figure'),
+        Output('sentiment-histogram', 'figure'),
+        Output('sentiment-breakdown-chart', 'figure'),
+        Output('lag-correlation-scatter', 'figure'),
+        Output('lag-correlation-heatmap', 'figure'),
+        Output('keyword-cloud', 'figure'),
+        Output('statistics-panel', 'children'),
+        Output('news-articles', 'children'),
+        Output('affected-parties-checklist', 'options'),
+        Output('affected-parties-checklist', 'value')
+    ],
+    [
+        Input('ticker-dropdown', 'value'),
+        Input('date-picker', 'start_date'),
+        Input('date-picker', 'end_date'),
+        Input('confidence-slider', 'value'),
+        Input('affected-parties-checklist', 'value'),
+        Input('sort-dropdown', 'value')
+    ]
+)
+def update_dashboard(ticker, start_date, end_date, confidence_threshold, affected_parties, sort_by):
+    """Main callback to update all dashboard components."""
+    # Convert string dates to datetime objects
+    if isinstance(start_date, str):
+        start_date = datetime.fromisoformat(start_date).date()
+    if isinstance(end_date, str):
+        end_date = datetime.fromisoformat(end_date).date()
+
+    # Fetch data
+    price_df = get_price_data(ticker, start_date, end_date)
+    articles_df = get_articles(ticker, start_date, end_date)
+
+    # Filter by confidence
+    if not articles_df.empty:
+        articles_df = articles_df[articles_df['confidence'] >= confidence_threshold]
+
+    # Handle affected parties filter
+    affected_parties_options = []
+    if not articles_df.empty and 'affected' in articles_df.columns:
+        # Extract unique affected parties
+        all_parties = set()
+        for parties in articles_df['affected'].dropna():
+            if isinstance(parties, list):
+                all_parties.update(parties)
+            elif isinstance(parties, str):
+                all_parties.add(parties)
+        affected_parties_options = [{'label': party, 'value': party} for party in sorted(all_parties)]
+
+        # Filter by affected parties if selected
+        if affected_parties and len(affected_parties) > 0:
+            articles_df = articles_df[
+                articles_df['affected'].apply(
+                    lambda x: (isinstance(x, list) and any(party in x for party in affected_parties)) or
+                              (isinstance(x, str) and x in affected_parties)
+                )
+            ]
+    else:
+        # If no affected column, set all as selected
+        affected_parties = []
+
+    # Compute daily sentiment aggregation
+    daily_sentiment_df = pd.DataFrame()
+    if not articles_df.empty:
+        daily_sentiment_df = articles_df.groupby(articles_df['timestamp'].dt.date).agg({
+            'sentiment': 'mean'
+        }).reset_index()
+        daily_sentiment_df.columns = ['date', 'sentiment']
+
+    # Merge price and sentiment on date
+    combined_df = pd.DataFrame()
+    if not price_df.empty and not daily_sentiment_df.empty:
+        price_df_daily = price_df.copy()
+        price_df_daily['date'] = price_df_daily['timestamp'].dt.date
+        combined_df = pd.merge(
+            price_df_daily[['date', 'close']],
+            daily_sentiment_df,
+            on='date',
+            how='inner'
+        )
+
+    # Generate figures
+    price_sentiment_fig = create_price_sentiment_chart(price_df, daily_sentiment_df)
+    candlestick_fig = create_candlestick_chart(price_df)
+    sentiment_histogram_fig = create_sentiment_histogram(articles_df)
+    sentiment_breakdown_fig = create_sentiment_breakdown_chart(articles_df)
+    lag_correlation_scatter_fig = create_lag_correlation_chart(combined_df)
+    lag_correlation_heatmap_fig = create_lag_heatmap(combined_df)
+    keyword_cloud_fig = create_keyword_cloud(articles_df)
+
+    # Generate statistics panel
+    statistics_panel = generate_statistics_panel(daily_sentiment_df, articles_df, combined_df)
+
+    # Sort and render articles
+    sorted_articles = sort_articles(articles_df, sort_by)
+    news_articles = render_articles_list(sorted_articles)
+
+    # Set default affected parties value if not set
+    if not affected_parties_options:
+        affected_parties_value = []
+    elif affected_parties is None:
+        affected_parties_value = [opt['value'] for opt in affected_parties_options]
+    else:
+        affected_parties_value = affected_parties
+
+    return (
+        price_sentiment_fig,
+        candlestick_fig,
+        sentiment_histogram_fig,
+        sentiment_breakdown_fig,
+        lag_correlation_scatter_fig,
+        lag_correlation_heatmap_fig,
+        keyword_cloud_fig,
+        statistics_panel,
+        news_articles,
+        affected_parties_options,
+        affected_parties_value
     )
 
-    # --- Keyword Cloud (top 15 words) ---
-    keyword_elements = []
-    if not filtered_articles.empty:
-        all_text = " ".join(filtered_articles['title'].tolist() + filtered_articles['body'].tolist())
-        words = pd.Series(re.findall(r'\b\w+\b', all_text.lower()))
-        top_words = words.value_counts().head(15)
-        for word, count in top_words.items():
-            keyword_elements.append(html.Span(
-                word, style={'fontSize': f'{8 + count*0.005}px', 'color':'#fff', 'margin':'5px', 'display':'inline-block'}
-            ))
 
-    # --- News Articles (top 2) ---
-    news_elements = []
-    for _, row in filtered_articles.head(2).iterrows():
-        news_elements.append(html.Div([
-            html.Div([
-                html.Span(row['source'], style={'color': '#00d4ff', 'fontSize': '12px'}),
-                html.Span(f" • {row['timestamp'].strftime('%Y-%m-%d')}", style={'color':'#888','fontSize':'12px'}),
-                html.Span(f" ↗ {row['sentiment']:.2f}", style={'color':'#00ff88','fontSize':'12px','float':'right'})
-            ], style={'marginBottom':'5px'}),
-            html.Div(row['title'], style={'color':'#fff','fontWeight':'bold','marginBottom':'5px'}),
-            html.Div(row.get('body',''), style={'color':'#888','fontSize':'12px','lineHeight':'1.4'})
-        ], style={'padding':'15px','backgroundColor':'#0d1117','borderRadius':'6px','marginBottom':'10px','border':'1px solid #30363d'}))
+def generate_statistics_panel(daily_sentiment_df: pd.DataFrame, articles_df: pd.DataFrame, combined_df: pd.DataFrame) -> list:
+    """Generate the statistics panel with key metrics."""
+    if daily_sentiment_df.empty and articles_df.empty:
+        return [html.Div("No data available", style={'color': COLORS['text_muted'], 'textAlign': 'center'})]
 
-    # --- Stats ---
-    sentiments_array = combined_df['sentiment'].to_numpy()
-    daily_mean = f"+{sentiments_array.mean():.3f}" if len(sentiments_array) > 0 else "+0.000"
-    daily_median = f"+{np.median(sentiments_array):.3f}" if len(sentiments_array) > 0 else "+0.000"
-    net_sentiment = f"+{sentiments_array.sum():.1f}" if len(sentiments_array) > 0 else "+0.0"
-    correlation_text = f"{corr_value:.2f} 1d lag"
+    metrics = []
 
-    return price_fig, corr_fig, keyword_elements, news_elements, daily_mean, daily_median, net_sentiment, correlation_text
+    # Daily Mean Sentiment
+    if not daily_sentiment_df.empty:
+        mean_val = daily_sentiment_df['sentiment'].mean()
+        mean_color = COLORS['accent_green'] if mean_val > 0 else COLORS['accent_red'] if mean_val < 0 else COLORS['text']
+        mean_sign = '+' if mean_val > 0 else ''
+        metrics.append(create_stat_card("Daily Mean", f"{mean_sign}{mean_val:.3f}", mean_color))
+    else:
+        metrics.append(create_stat_card("Daily Mean", "N/A", COLORS['text_muted']))
+
+    # Daily Median Sentiment
+    if not daily_sentiment_df.empty:
+        median_val = daily_sentiment_df['sentiment'].median()
+        median_color = COLORS['accent_green'] if median_val > 0 else COLORS['accent_red'] if median_val < 0 else COLORS['text']
+        median_sign = '+' if median_val > 0 else ''
+        metrics.append(create_stat_card("Daily Median", f"{median_sign}{median_val:.3f}", median_color))
+    else:
+        metrics.append(create_stat_card("Daily Median", "N/A", COLORS['text_muted']))
+
+    # Net Sentiment
+    if not daily_sentiment_df.empty:
+        net_val = daily_sentiment_df['sentiment'].sum()
+        net_color = COLORS['accent_green'] if net_val > 0 else COLORS['accent_red'] if net_val < 0 else COLORS['text']
+        net_sign = '+' if net_val > 0 else ''
+        metrics.append(create_stat_card("Net Sentiment", f"{net_sign}{net_val:.1f}", net_color))
+    else:
+        metrics.append(create_stat_card("Net Sentiment", "N/A", COLORS['text_muted']))
+
+    # Best Lag Correlation
+    if not combined_df.empty and len(combined_df) >= 2:
+        max_corr = -999
+        best_lag = 0
+        for lag in range(0, 8):
+            shifted_return = combined_df['close'].pct_change().shift(-lag)
+            valid_data = combined_df[['sentiment']].join(shifted_return.rename('return')).dropna()
+            if len(valid_data) >= 2:
+                corr = abs(valid_data['sentiment'].corr(valid_data['return']))
+                if corr > max_corr:
+                    max_corr = corr
+                    best_lag = lag
+        if max_corr > -999:
+            metrics.append(create_stat_card("Best Lag Corr", f"{max_corr:.2f} @ {best_lag}d", COLORS['accent_cyan']))
+        else:
+            metrics.append(create_stat_card("Best Lag Corr", "N/A", COLORS['text_muted']))
+    else:
+        metrics.append(create_stat_card("Best Lag Corr", "N/A", COLORS['text_muted']))
+
+    # Total Articles
+    total_articles = len(articles_df) if not articles_df.empty else 0
+    metrics.append(create_stat_card("Total Articles", str(total_articles), COLORS['text']))
+
+    # Positive/Neutral/Negative Ratio
+    if not articles_df.empty:
+        positive_count = len(articles_df[articles_df['sentiment'] > 0.2])
+        neutral_count = len(articles_df[(articles_df['sentiment'] >= -0.2) & (articles_df['sentiment'] <= 0.2)])
+        negative_count = len(articles_df[articles_df['sentiment'] < -0.2])
+        total = positive_count + neutral_count + negative_count
+
+        if total > 0:
+            ratio_bar = html.Div(style={'marginTop': '10px', 'height': '8px', 'borderRadius': '4px', 'overflow': 'hidden', 'display': 'flex'}, children=[
+                html.Div(style={'width': f"{(positive_count/total)*100}%", 'backgroundColor': COLORS['accent_green'], 'height': '100%'}),
+                html.Div(style={'width': f"{(neutral_count/total)*100}%", 'backgroundColor': COLORS['text_muted'], 'height': '100%'}),
+                html.Div(style={'width': f"{(negative_count/total)*100}%", 'backgroundColor': COLORS['accent_red'], 'height': '100%'})
+            ])
+            ratio_text = html.Div(
+                f"{positive_count} / {neutral_count} / {negative_count}",
+                style={'fontSize': '10px', 'color': COLORS['text_muted'], 'marginTop': '5px'}
+            )
+            metrics.append(html.Div([
+                html.Div("Sentiment Ratio", style={'color': COLORS['text_muted'], 'fontSize': '11px', 'marginBottom': '5px'}),
+                ratio_bar,
+                ratio_text
+            ], style={
+                'padding': '12px',
+                'backgroundColor': COLORS['background'],
+                'borderRadius': '6px',
+                'border': f"1px solid {COLORS['border']}"
+            }))
+
+    return html.Div(style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '10px'}, children=metrics)
+
+
+def create_stat_card(label: str, value: str, color: str) -> html.Div:
+    """Create a styled statistics card."""
+    return html.Div([
+        html.Div(label, style={'color': COLORS['text_muted'], 'fontSize': '11px', 'marginBottom': '5px'}),
+        html.Div(value, style={'color': color, 'fontSize': '20px', 'fontWeight': 'bold'})
+    ], style={
+        'padding': '12px',
+        'backgroundColor': COLORS['background'],
+        'borderRadius': '6px',
+        'border': f"1px solid {COLORS['border']}"
+    })
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=8050)
