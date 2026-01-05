@@ -62,12 +62,7 @@ def render_articles_list(articles_df: pd.DataFrame) -> list:
         sentiment_arrow = '↗' if row['sentiment'] > 0 else '↘' if row['sentiment'] < 0 else '→'
 
         # Format affected parties
-        affected_text = ""
-        if 'affected' in row and pd.notna(row['affected']):
-            if isinstance(row['affected'], list):
-                affected_text = f" • {', '.join(row['affected'])}"
-            elif isinstance(row['affected'], str):
-                affected_text = f" • {row['affected']}"
+        affected_text = f" • {row['affected']}"
 
         articles.append(html.Div([
             html.Div([
@@ -130,7 +125,7 @@ app.layout = html.Div(style={'backgroundColor': COLORS['background'], 'minHeight
                         style={
                             'width': '120px',
                             'backgroundColor': COLORS['background'],
-                            'color': COLORS['text']
+                            'color': COLORS['text_muted']
                         },
                         clearable=False
                     )
@@ -166,7 +161,7 @@ app.layout = html.Div(style={'backgroundColor': COLORS['background'], 'minHeight
                     min=0.0,
                     max=1.0,
                     step=0.05,
-                    value=0.5,
+                    value=0.2,
                     marks={i/10: f"{i/10:.1f}" for i in range(0, 11, 2)},
                     tooltip={"placement": "bottom", "always_visible": True}
                 )
@@ -365,26 +360,25 @@ def update_dashboard(ticker, start_date, end_date, confidence_threshold, affecte
 
     # Handle affected parties filter
     affected_parties_options = []
-    if not articles_df.empty and 'affected' in articles_df.columns:
+    if not articles_df.empty:
         # Extract unique affected parties
-        all_parties = set()
-        for parties in articles_df['affected'].dropna():
-            if isinstance(parties, list):
-                all_parties.update(parties)
-            elif isinstance(parties, str):
-                all_parties.add(parties)
+        all_parties = articles_df['affected'].unique().tolist()
         affected_parties_options = [{'label': party, 'value': party} for party in sorted(all_parties)]
+
+        # If affected_parties is None (first load), select all parties by default
+        if not affected_parties:
+            affected_parties = list(all_parties)
 
         # Filter by affected parties if selected
         if affected_parties and len(affected_parties) > 0:
             articles_df = articles_df[
                 articles_df['affected'].apply(
-                    lambda x: (isinstance(x, list) and any(party in x for party in affected_parties)) or
+                    lambda x: (isinstance(x, list) and any(party in affected_parties for party in x)) or
                               (isinstance(x, str) and x in affected_parties)
                 )
             ]
     else:
-        # If no affected column, set all as selected
+        # If no affected column, set empty
         affected_parties = []
 
     # Compute daily sentiment aggregation
@@ -423,14 +417,6 @@ def update_dashboard(ticker, start_date, end_date, confidence_threshold, affecte
     sorted_articles = sort_articles(articles_df, sort_by)
     news_articles = render_articles_list(sorted_articles)
 
-    # Set default affected parties value if not set
-    if not affected_parties_options:
-        affected_parties_value = []
-    elif affected_parties is None:
-        affected_parties_value = [opt['value'] for opt in affected_parties_options]
-    else:
-        affected_parties_value = affected_parties
-
     return (
         price_sentiment_fig,
         candlestick_fig,
@@ -442,7 +428,7 @@ def update_dashboard(ticker, start_date, end_date, confidence_threshold, affecte
         statistics_panel,
         news_articles,
         affected_parties_options,
-        affected_parties_value
+        affected_parties if affected_parties else []
     )
 
 
