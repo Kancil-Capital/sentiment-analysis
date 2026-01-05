@@ -102,6 +102,10 @@ min_date = end_date - timedelta(days=365)
 
 # Layout
 app.layout = html.Div(style={'backgroundColor': COLORS['background'], 'minHeight': '100vh', 'padding': '20px'}, children=[
+    # Data stores (invisible components to cache fetched data)
+    dcc.Store(id='price-data-store'),
+    dcc.Store(id='articles-data-store'),
+
     # Header
     html.Div(style={
         'backgroundColor': COLORS['card'],
@@ -318,7 +322,38 @@ app.layout = html.Div(style={'backgroundColor': COLORS['background'], 'minHeight
 ])
 
 
-# Main Callback
+# Data Fetching Callback (only runs when ticker or date range changes)
+@app.callback(
+    [
+        Output('price-data-store', 'data'),
+        Output('articles-data-store', 'data')
+    ],
+    [
+        Input('ticker-dropdown', 'value'),
+        Input('date-picker', 'start_date'),
+        Input('date-picker', 'end_date')
+    ]
+)
+def fetch_data(ticker, start_date, end_date):
+    """Fetch data from database and store in browser."""
+    # Convert string dates to datetime objects
+    if isinstance(start_date, str):
+        start_date = datetime.fromisoformat(start_date).date()
+    if isinstance(end_date, str):
+        end_date = datetime.fromisoformat(end_date).date()
+
+    # Fetch data
+    price_df = get_price_data(ticker, start_date, end_date)
+    articles_df = get_articles(ticker, start_date, end_date)
+
+    # Convert to JSON for storage
+    price_data = price_df.to_json(date_format='iso', orient='split') if not price_df.empty else None
+    articles_data = articles_df.to_json(date_format='iso', orient='split') if not articles_df.empty else None
+
+    return price_data, articles_data
+
+
+# Main Callback (processes stored data with filters)
 @app.callback(
     [
         Output('price-sentiment-chart', 'figure'),
@@ -334,25 +369,24 @@ app.layout = html.Div(style={'backgroundColor': COLORS['background'], 'minHeight
         Output('affected-parties-checklist', 'value')
     ],
     [
-        Input('ticker-dropdown', 'value'),
-        Input('date-picker', 'start_date'),
-        Input('date-picker', 'end_date'),
+        Input('price-data-store', 'data'),
+        Input('articles-data-store', 'data'),
         Input('confidence-slider', 'value'),
         Input('affected-parties-checklist', 'value'),
         Input('sort-dropdown', 'value')
     ]
 )
-def update_dashboard(ticker, start_date, end_date, confidence_threshold, affected_parties, sort_by):
-    """Main callback to update all dashboard components."""
-    # Convert string dates to datetime objects
-    if isinstance(start_date, str):
-        start_date = datetime.fromisoformat(start_date).date()
-    if isinstance(end_date, str):
-        end_date = datetime.fromisoformat(end_date).date()
+def update_dashboard(price_data, articles_data, confidence_threshold, affected_parties, sort_by):
+    """Main callback to update all dashboard components using cached data."""
+    # Load data from store
+    price_df = pd.read_json(price_data, orient='split') if price_data else pd.DataFrame()
+    articles_df = pd.read_json(articles_data, orient='split') if articles_data else pd.DataFrame()
 
-    # Fetch data
-    price_df = get_price_data(ticker, start_date, end_date)
-    articles_df = get_articles(ticker, start_date, end_date)
+    # Convert timestamp columns back to datetime
+    if not price_df.empty and 'timestamp' in price_df.columns:
+        price_df['timestamp'] = pd.to_datetime(price_df['timestamp'])
+    if not articles_df.empty and 'timestamp' in articles_df.columns:
+        articles_df['timestamp'] = pd.to_datetime(articles_df['timestamp'])
 
     # Filter by confidence
     if not articles_df.empty:
