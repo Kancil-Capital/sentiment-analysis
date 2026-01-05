@@ -181,7 +181,7 @@ app.layout = html.Div(style={'backgroundColor': COLORS['background'], 'minHeight
     ]),
 
     # Main Content Grid
-    html.Div(style={'display': 'grid', 'gridTemplateColumns': '60% 40%', 'gap': '20px', 'marginBottom': '20px'}, children=[
+    html.Div(style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(400px, 1fr))', 'gap': '20px', 'marginBottom': '20px'}, children=[
         # Left Column
         html.Div(children=[
             # Price & Sentiment Overlay
@@ -255,7 +255,7 @@ app.layout = html.Div(style={'backgroundColor': COLORS['background'], 'minHeight
     ]),
 
     # Bottom Row - Sentiment Analysis
-    html.Div(style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '20px', 'marginBottom': '20px'}, children=[
+    html.Div(style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(350px, 1fr))', 'gap': '20px', 'marginBottom': '20px'}, children=[
         # Sentiment Breakdown
         html.Div(style={
             'backgroundColor': COLORS['card'],
@@ -292,7 +292,7 @@ app.layout = html.Div(style={'backgroundColor': COLORS['background'], 'minHeight
     ]),
 
     # Correlation Analysis
-    html.Div(style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '20px'}, children=[
+    html.Div(style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(350px, 1fr))', 'gap': '20px'}, children=[
         # Lag Correlation Scatter
         html.Div(style={
             'backgroundColor': COLORS['card'],

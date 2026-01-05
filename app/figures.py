@@ -37,8 +37,7 @@ def create_price_sentiment_chart(price_df: pd.DataFrame, daily_sentiment_df: pd.
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['card'],
             font=dict(color=COLORS['text']),
-            height=350,
-            autosize=False
+            height=350
         )
         return fig
 
@@ -96,8 +95,7 @@ def create_price_sentiment_chart(price_df: pd.DataFrame, daily_sentiment_df: pd.
         margin=dict(l=40, r=40, t=30, b=40),
         height=350,
         hovermode='x unified',
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        autosize=False
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
     )
 
     return fig
@@ -114,8 +112,7 @@ def create_candlestick_chart(price_df: pd.DataFrame) -> go.Figure:
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['card'],
             font=dict(color=COLORS['text']),
-            height=400,
-            autosize=False
+            height=400
         )
         return fig
 
@@ -168,8 +165,7 @@ def create_candlestick_chart(price_df: pd.DataFrame) -> go.Figure:
         font=dict(color=COLORS['text']),
         margin=dict(l=40, r=40, t=30, b=40),
         height=400,
-        xaxis_rangeslider_visible=False,
-        autosize=False
+        xaxis_rangeslider_visible=False
     )
 
     return fig
@@ -186,8 +182,7 @@ def create_sentiment_histogram(articles_df: pd.DataFrame) -> go.Figure:
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['card'],
             font=dict(color=COLORS['text']),
-            height=250,
-            autosize=False
+            height=250
         )
         return fig
 
@@ -225,8 +220,7 @@ def create_sentiment_histogram(articles_df: pd.DataFrame) -> go.Figure:
         font=dict(color=COLORS['text']),
         margin=dict(l=40, r=40, t=30, b=40),
         height=250,
-        showlegend=False,
-        autosize=False
+        showlegend=False
     )
 
     return fig
@@ -243,8 +237,7 @@ def create_sentiment_breakdown_chart(articles_df: pd.DataFrame) -> go.Figure:
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['card'],
             font=dict(color=COLORS['text']),
-            height=250,
-            autosize=False
+            height=250
         )
         return fig
 
@@ -300,8 +293,7 @@ def create_sentiment_breakdown_chart(articles_df: pd.DataFrame) -> go.Figure:
         margin=dict(l=40, r=40, t=30, b=40),
         height=250,
         barmode='stack',
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        autosize=False
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
     )
 
     return fig
@@ -318,8 +310,7 @@ def create_lag_correlation_chart(combined_df: pd.DataFrame) -> go.Figure:
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['card'],
             font=dict(color=COLORS['text']),
-            height=300,
-            autosize=False
+            height=300
         )
         return fig
 
@@ -337,8 +328,7 @@ def create_lag_correlation_chart(combined_df: pd.DataFrame) -> go.Figure:
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['card'],
             font=dict(color=COLORS['text']),
-            height=300,
-            autosize=False
+            height=300
         )
         return fig
 
@@ -396,8 +386,7 @@ def create_lag_correlation_chart(combined_df: pd.DataFrame) -> go.Figure:
         paper_bgcolor=COLORS['card'],
         font=dict(color=COLORS['text']),
         margin=dict(l=40, r=40, t=30, b=40),
-        height=300,
-        autosize=False
+        height=300
     )
 
     return fig
@@ -414,8 +403,7 @@ def create_lag_heatmap(combined_df: pd.DataFrame, max_lag: int = 7) -> go.Figure
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['card'],
             font=dict(color=COLORS['text']),
-            height=120,
-            autosize=False
+            height=120
         )
         return fig
 
@@ -437,12 +425,12 @@ def create_lag_heatmap(combined_df: pd.DataFrame, max_lag: int = 7) -> go.Figure
 
     # Create heatmap
     fig = go.Figure(data=go.Heatmap(
-        z=[lag_df['correlation'].values],
-        x=lag_df['lag'].values,
+        z=[lag_df['correlation'].tolist()],
+        x=lag_df['lag'].tolist(),
         y=['Correlation'],
         colorscale='RdYlGn',
         zmid=0,
-        text=[[f"{val:.3f}" for val in lag_df['correlation'].values]],
+        text=[[f"{val:.3f}" for val in lag_df['correlation'].tolist()]],
         texttemplate='%{text}',
         textfont={"size": 10},
         colorbar=dict(title="Correlation")
@@ -456,9 +444,8 @@ def create_lag_heatmap(combined_df: pd.DataFrame, max_lag: int = 7) -> go.Figure
         plot_bgcolor=COLORS['background'],
         paper_bgcolor=COLORS['card'],
         font=dict(color=COLORS['text']),
-        margin=dict(l=10, r=80, t=10, b=50),
+        margin=dict(l=40, r=100, t=30, b=40),
         height=150,
-        autosize=False,
         yaxis=dict(scaleanchor=None)
     )
 
@@ -526,8 +513,7 @@ def create_keyword_cloud(articles_df: pd.DataFrame) -> go.Figure:
             margin=dict(l=0, r=0, t=0, b=0),
             height=400,
             xaxis=dict(visible=False),
-            yaxis=dict(visible=False),
-            autosize=False
+            yaxis=dict(visible=False)
         )
         return fig
 
@@ -567,8 +553,7 @@ def create_keyword_cloud(articles_df: pd.DataFrame) -> go.Figure:
         plot_bgcolor=COLORS['card'],
         paper_bgcolor=COLORS['card'],
         margin=dict(l=0, r=0, t=0, b=0),
-        height=400,
-        autosize=False
+        height=400
     )
 
     return fig
