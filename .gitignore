@@ -209,3 +209,4 @@ __marimo__/
 # Test files
 *.ipynb
 .DS_Store
+!setup.log
