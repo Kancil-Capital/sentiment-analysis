@@ -394,7 +394,7 @@ def create_lag_correlation_chart(combined_df: pd.DataFrame) -> go.Figure:
 
 def create_lag_heatmap(combined_df: pd.DataFrame, max_lag: int = 7) -> go.Figure:
     """
-    Show correlation strength across multiple lag periods.
+    Show correlation strength across multiple lag periods as a bar chart.
     """
     if combined_df.empty or 'sentiment' not in combined_df.columns or 'close' not in combined_df.columns:
         fig = go.Figure()
@@ -403,7 +403,7 @@ def create_lag_heatmap(combined_df: pd.DataFrame, max_lag: int = 7) -> go.Figure
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['card'],
             font=dict(color=COLORS['text']),
-            height=120
+            height=250
         )
         return fig
 
@@ -421,32 +421,51 @@ def create_lag_heatmap(combined_df: pd.DataFrame, max_lag: int = 7) -> go.Figure
         correlations.append({'lag': lag, 'correlation': corr})
 
     lag_df = pd.DataFrame(correlations)
-    print(lag_df)
 
-    # Create heatmap
-    fig = go.Figure(data=go.Heatmap(
-        z=[lag_df['correlation'].tolist()],
-        x=lag_df['lag'].tolist(),
-        y=['Correlation'],
-        colorscale='RdYlGn',
-        zmid=0,
-        text=[[f"{val:.3f}" for val in lag_df['correlation'].tolist()]],
-        texttemplate='%{text}',
-        textfont={"size": 10},
-        colorbar=dict(title="Correlation")
+    # Color bars by positive/negative correlation
+    colors = [COLORS['accent_green'] if corr > 0 else COLORS['accent_red'] if corr < 0 else COLORS['text_muted']
+              for corr in lag_df['correlation']]
+
+    # Create bar chart
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        x=lag_df['lag'],
+        y=lag_df['correlation'],
+        marker=dict(
+            color=colors,
+            line=dict(color=COLORS['border'], width=1)
+        ),
+        text=[f"{val:.3f}" for val in lag_df['correlation']],
+        textposition='outside',
+        textfont=dict(size=10),
+        hovertemplate='<b>Lag:</b> %{x} days<br><b>Correlation:</b> %{y:.3f}<extra></extra>',
+        showlegend=False
     ))
 
+    # Add zero line
+    fig.add_hline(y=0, line_dash="dash", line_color=COLORS['text_muted'], line_width=1)
+
     # Layout
-    fig.update_xaxes(title_text="Lag (Days)", side='bottom', gridcolor=COLORS['border'])
-    fig.update_yaxes(showticklabels=False, gridcolor=COLORS['border'])
+    fig.update_xaxes(
+        title_text="Lag (Days)",
+        gridcolor=COLORS['border'],
+        showgrid=True,
+        dtick=1
+    )
+    fig.update_yaxes(
+        title_text="Correlation",
+        gridcolor=COLORS['border'],
+        showgrid=True,
+        range=[min(lag_df['correlation'].min() - 0.1, -0.2), max(lag_df['correlation'].max() + 0.1, 0.2)]
+    )
 
     fig.update_layout(
         plot_bgcolor=COLORS['background'],
         paper_bgcolor=COLORS['card'],
         font=dict(color=COLORS['text']),
-        margin=dict(l=40, r=100, t=30, b=40),
-        height=150,
-        yaxis=dict(scaleanchor=None)
+        margin=dict(l=40, r=40, t=40, b=40),
+        height=250
     )
 
     return fig

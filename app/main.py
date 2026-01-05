@@ -6,7 +6,7 @@ load_dotenv(".env")
 
 from datetime import datetime, timedelta
 import pandas as pd
-from dash import Dash, html, dcc, Input, Output
+from dash import Dash, html, dcc, Input, Output, callback_context
 
 from app.data.main import get_articles, get_price_data
 from app.figures import (
@@ -378,6 +378,14 @@ def fetch_data(ticker, start_date, end_date):
 )
 def update_dashboard(price_data, articles_data, confidence_threshold, affected_parties, sort_by):
     """Main callback to update all dashboard components using cached data."""
+    # Check if triggered by data store update (ticker or date change)
+    ctx = callback_context
+    triggered_by_data_fetch = False
+    if ctx.triggered:
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger_id in ['price-data-store', 'articles-data-store']:
+            triggered_by_data_fetch = True
+
     # Load data from store
     price_df = pd.read_json(price_data, orient='split') if price_data else pd.DataFrame()
     articles_df = pd.read_json(articles_data, orient='split') if articles_data else pd.DataFrame()
@@ -399,8 +407,8 @@ def update_dashboard(price_data, articles_data, confidence_threshold, affected_p
         all_parties = articles_df['affected'].unique().tolist()
         affected_parties_options = [{'label': party, 'value': party} for party in sorted(all_parties)]
 
-        # If affected_parties is None (first load), select all parties by default
-        if not affected_parties:
+        # Reset to all parties when ticker/date changes or on first load
+        if triggered_by_data_fetch or not affected_parties:
             affected_parties = list(all_parties)
 
         # Filter by affected parties if selected
