@@ -387,6 +387,20 @@ wheels = [
 ]
 
 [[package]]
+name = "dash-auth"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dash" },
+    { name = "flask" },
+    { name = "werkzeug" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8b/8a/27c2bfb5f9fa97acedce529f859fab4ad2bae805d3a7f2b87c251ff8a6ee/dash_auth-2.3.0.tar.gz", hash = "sha256:72df43248c15e121f8d5d710981e880deb2df546b564f2951a10ca50d7d92f6d", size = 17727, upload-time = "2024-03-19T01:37:41.275Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/19/42/d636affcd8074f7f48156a99d8854e5be951d8601dcb4178231c92c988d1/dash_auth-2.3.0-py3-none-any.whl", hash = "sha256:2fa72d4ee128b4f9cf0c958157a986ffcd0b93d43b54d64e3cef5976ab7e0abe", size = 14428, upload-time = "2024-03-19T01:37:37.878Z" },
+]
+
+[[package]]
 name = "deprecation"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1721,6 +1735,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "dash" },
+    { name = "dash-auth" },
     { name = "dotenv" },
     { name = "en-core-web-lg" },
     { name = "gunicorn" },
@@ -1743,6 +1758,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "dash", specifier = ">=3.3.0" },
+    { name = "dash-auth", specifier = ">=2.3.0" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "en-core-web-lg", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl" },
     { name = "gunicorn", specifier = ">=23.0.0" },

@@ -5,8 +5,10 @@ from dotenv import load_dotenv
 load_dotenv(".env")
 
 from datetime import datetime, timedelta
+import os
 import pandas as pd
 from dash import Dash, html, dcc, Input, Output, callback_context
+from dash_auth import BasicAuth
 
 from app.data.main import get_articles, get_price_data
 from app.figures import (
@@ -22,6 +24,25 @@ from app.figures import (
 
 app = Dash(__name__, title="SentimentPulse")
 server = app.server
+
+# Load authentication credentials from environment
+auth_username = os.getenv('AUTH_USERNAME')
+auth_password = os.getenv('AUTH_PASSWORD')
+auth_secret_key = os.getenv('AUTH_SECRET_KEY')
+
+# Validate that credentials are set
+if not auth_username or not auth_password or not auth_secret_key:
+    raise ValueError(
+        "Authentication credentials not configured. "
+        "Please set AUTH_USERNAME and AUTH_PASSWORD in .env file"
+    )
+
+# Configure Basic HTTP Authentication
+auth = BasicAuth(
+    app,
+    {auth_username: auth_password},
+    secret_key=auth_secret_key
+)
 
 
 def sort_articles(articles_df: pd.DataFrame, sort_by: str) -> pd.DataFrame:

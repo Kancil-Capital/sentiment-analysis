@@ -61,6 +61,10 @@ cymem==2.0.13
     #   spacy
     #   thinc
 dash==3.3.0
+    # via
+    #   sentiment-analysis (pyproject.toml)
+    #   dash-auth
+dash-auth==2.3.0
     # via sentiment-analysis (pyproject.toml)
 deprecation==2.1.0
     # via
@@ -76,7 +80,9 @@ filelock==3.20.1
     #   torch
     #   transformers
 flask==3.1.2
-    # via dash
+    # via
+    #   dash
+    #   dash-auth
 fonttools==4.61.1
     # via matplotlib
 frozendict==2.4.7
@@ -404,6 +410,7 @@ websockets==15.0.1
 werkzeug==3.1.4
     # via
     #   dash
+    #   dash-auth
     #   flask
 wordcloud==1.9.5
     # via sentiment-analysis (pyproject.toml)

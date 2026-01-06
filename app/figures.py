@@ -489,6 +489,7 @@ def preprocess_text(articles_df: pd.DataFrame) -> dict:
         stop_words = set(stopwords.words('english'))
     except LookupError:
         # If stopwords not downloaded, return empty
+        print("NLTK stopwords not found. Please download them using nltk.download('stopwords').")
         return {}
 
     lemmatizer = WordNetLemmatizer()
