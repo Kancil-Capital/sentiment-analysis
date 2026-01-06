@@ -31,7 +31,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-        run: python app/data/pipeline.py
+        run: python -m app.data.pipeline
       
       # Upload log files as artifacts
       - name: Upload logs
